@@ -10,14 +10,12 @@ interface Require {
     config(conf: { paths: any });
 }
 
-type Def = ((m: any) => any);
-
-interface Promise {
-    c?: Def[];
+interface Promise<T> {
+    c?: ((m: T, ctx?: any) => void)[];
     v?: any;
 }
 
-interface Module extends Promise {
+interface Module extends Promise<any> {
     n?: string;
 }
 
@@ -26,74 +24,102 @@ interface ModuleDict {
     exports?: any;
 }
 
-//type RequireContext = [mod: Module, def: Def, resolvedDeps: Module[]][];
+interface RequireContext extends Promise<void> {
+    n: number;
+}
 
 declare var define: Define;
 declare var require: Require;
 
 (function (global) {
-    var head = document.getElementsByTagName('head')[0];
 
-    var modules: ModuleDict = {};
-    var defPromise: Promise = { c: [] };
-    var paths: {};
-
-    function then(m: Module, f: (m: any) => any) {
-        console.log(m);
-        m.v ? f(m.v) : m.c.push(f);
+    global.require = <any>function (deps?: any, def?: (...d: any[]) => any) {
+        var ctx = { c: [], n: 0 };
+        global.define(null, deps, def);
+        loadSuccess({}, ctx);
     }
 
-    function resolve(m: Module, mobj?: any) {
+    global.require.config = function (c) {
+        conf = c;
+    }
+
+    var head = document.getElementsByTagName('head')[0],
+        modules: ModuleDict = { require: { v: global.require } },
+        defPromise: Promise<Module> = { c: [] },
+        conf;
+
+    function then<T>(m: Promise<T>, f: (m: T, ctx?: any) => void) {
+        // We use unshift so that we can use a promise for post-order traversal too
+        !m.c ? f(m.v) : m.c.unshift(f);
+    }
+
+    function resolve<T>(m: Promise<T>, mobj?: T, ctx?: any) {
         if (m.c) { // Only resolve once
-            m.c.map(cb => cb(mobj));
+            m.c.map(cb => cb(mobj, ctx));
             m.c = null;
             m.v = mobj;
         }
     }
 
-    function loadSuccess(singleMod?: Module) {
-        resolve(defPromise, defPromise.c.length == 1 && singleMod);
+    function depDone(ctx: RequireContext) {
+        if (!ctx.n) {
+            resolve(ctx);
+        }
+    }
+
+    function loadSuccess(singleMod?: Module, ctx?: RequireContext) {
+        resolve(defPromise, singleMod, ctx);
         defPromise = { c: [] };
     }
 
     function loadError() {
-        console.log('B');
+        //console.log('B');
     }
 
-    function requestLoad(name, mod/*, ctx*/) {
-        var m;
+    function getPath(name: string): string {
+        var path = conf.paths[name] || name;
+        return (conf.baseUrl || '')
+             + path
+             + (/\.js$/.test(path) ? '' : '.js'); // Auto-add .js if missing
+    }
+
+    function getModule(name: string): Module {
+        var key = getPath(name);
+        return modules[key] || (modules[key] = { n: name, c: []});
+    }
+
+    function requestLoad(name, mod, ctx) {
+        var m: Module,
+            path = getPath(name);
+
         if (name == 'exports') {
             m = { v: {} };
             resolve(mod, m.v);
         } else {
-            m = modules[name];
+            m = modules[path];
         }
 
         if (!m) {
-            m = (modules[name] = { n: name, c: []});
-            var path = paths[name] || name;
-
+            ++ctx.n;
+            
+            m = getModule(name);
+            
             // type = 'text/javascript' is default
             var node = document.createElement('script');
             node.async = true;
             node.src = path;
-            node.onload = function () { loadSuccess(m) };
+            node.onload = function () { loadSuccess(m, ctx); --ctx.n; depDone(ctx); };
             node.onerror = loadError;
             head.appendChild(node);
         }
         return m;
     }
     
-    function getModule(moduleName: string): Module {
-        return modules[moduleName] || (modules[moduleName] = { n: moduleName, c: []});
-    }
-
-    function runModule(mod, def, resolvedDeps) {
-        resolve(mod, def.apply(null, resolvedDeps));
-    }
-
-    define = function (name: any, deps?: any, def?: (...d: any[]) => any /*, ctx: RequireContext*/) {
-        if (!def) {
+    global.define = function(name: any, deps?: any, def?: (...d: any[]) => any) {
+        var mod: Module;
+        if (def) {
+            mod = getModule(name);
+        } else {
             def = deps;
             deps = name;
             if (!def) {
@@ -102,36 +128,18 @@ declare var require: Require;
             }
         }
 
-        var mod = name && getModule(name);
-        
-        then(defPromise, singleMod => {
-           
+        then(defPromise, (singleMod, ctx) => {
             mod = mod || singleMod;
 
-            var left = deps.length;
-            var resolvedDeps = [];
+            // TODO: If mod is not set, this is an ambiguous anonymous module
 
-            deps.map((depName, index) => {
-                var depMod = requestLoad(depName, mod/*, ctx*/);
-                then(depMod, m => {
-                    resolvedDeps[index] = m;
-                    if (!--left) {
+            var depPromises = deps.map(depName => requestLoad(depName, mod, ctx));
 
-                        resolve(mod, def.apply(null, resolvedDeps));
-                    }
-                });
+            then(ctx, () => {
+                resolve(mod, def.apply(null, depPromises.map(p => p.v))); // TODO: If p.v is not set, we have an unbroken circular dependency
             });
+            depDone(ctx);
         });
-    };
-
-    require = <any>function (deps?: any, def?: (...d: any[]) => any) {
-        define(null, deps, def);
-        // TODO: Wait on complete load of all modules in defPromise (not just resolve of the promise)
-        loadSuccess({});
-    }
-
-    require.config = function (conf) {
-        paths = conf.paths;
     }
 
 })(this)
