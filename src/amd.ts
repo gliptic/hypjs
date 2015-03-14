@@ -56,6 +56,7 @@ declare var require: Require;
         var ctx: RequireContext = { c: [], n: 0, s: {} };
         flushDefines(ctx);
 
+
         ctx.t = setTimeout(function () {
             var n = ctx.n;
             ctx.n = -1/0; // Make sure the context is never resolved
