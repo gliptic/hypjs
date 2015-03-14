@@ -2,6 +2,7 @@ interface Define {
     (def: (...d: any[]) => any);
     (deps: string[], def: (...d: any[]) => any);
     (name: string, deps: string[], def: (...d: any[]) => any);
+    // TODO: Should we support (name, def)?
 }
 
 interface Require {
@@ -11,7 +12,7 @@ interface Require {
 }
 
 interface Promise<T> {
-    c?: ((m: T, ctx?: any) => void)[];
+    c?: ((m: T) => void)[];
     v?: any;
 }
 
@@ -26,6 +27,8 @@ interface ModuleDict {
 
 interface RequireContext extends Promise<void> {
     n: number;
+    s?: Module; // The single anonymous module for this context. This is set in onload.
+    t?: number;
 }
 
 declare var define: Define;
@@ -33,10 +36,31 @@ declare var require: Require;
 
 (function (global) {
 
+    /** @const */
+    var DEBUG = false;
+    /** @const */
+    var MISUSE_CHECK = false;
+    /** @const */
+    var SIMULATE_TIMEOUT = false;
+    /** @const */
+    var SIMULATE_RANDOM_404 = false;
+    /** @const */
+    var default_timeout = 7;
+
     global.require = <any>function (deps?: any, def?: (...d: any[]) => any) {
-        var ctx = { c: [], n: 0 };
-        global.define(null, deps, def);
-        loadSuccess({}, ctx);
+        global.define(deps, def);
+
+        // There may be defines that haven't been processed here because they were
+        // made outside a 'require' context. Those will automatically tag along into
+        // this new context.
+        var ctx: RequireContext = { c: [], n: 0, s: {} };
+        flushDefines(ctx);
+
+        ctx.t = setTimeout(function () {
+            var n = ctx.n;
+            ctx.n = -1/0; // Make sure the context is never resolved
+            throw 'Timeout loading ' + n + ' modules';
+        }, (conf.waitSeconds || default_timeout)*1000)
     }
 
     global.require.config = function (c) {
@@ -45,7 +69,8 @@ declare var require: Require;
 
     var head = document.getElementsByTagName('head')[0],
         modules: ModuleDict = { require: { v: global.require } },
-        defPromise: Promise<Module> = { c: [] },
+        defPromise: Promise<RequireContext> = { c: [] },
+        requested = {},
         conf;
 
     function then<T>(m: Promise<T>, f: (m: T, ctx?: any) => void) {
@@ -53,9 +78,9 @@ declare var require: Require;
         !m.c ? f(m.v) : m.c.unshift(f);
     }
 
-    function resolve<T>(m: Promise<T>, mobj?: T, ctx?: any) {
+    function resolve<T>(m: Promise<T>, mobj?: T) {
         if (m.c) { // Only resolve once
-            m.c.map(cb => cb(mobj, ctx));
+            m.c.map(cb => cb(mobj));
             m.c = null;
             m.v = mobj;
         }
@@ -63,17 +88,16 @@ declare var require: Require;
 
     function depDone(ctx: RequireContext) {
         if (!ctx.n) {
+            clearTimeout(ctx.t);
+            DEBUG && console.log('Resolving context');
             resolve(ctx);
         }
     }
 
-    function loadSuccess(singleMod?: Module, ctx?: RequireContext) {
-        resolve(defPromise, singleMod, ctx);
+    function flushDefines(ctx?: RequireContext) {
+        DEBUG && console.log('Flusing defines');
+        resolve(defPromise, ctx);
         defPromise = { c: [] };
-    }
-
-    function loadError() {
-        //console.log('B');
     }
 
     function getPath(name: string): string {
@@ -84,34 +108,51 @@ declare var require: Require;
     }
 
     function getModule(name: string): Module {
-        var key = getPath(name);
-        return modules[key] || (modules[key] = { n: name, c: []});
+        return modules[name] || (modules[name] = { n: name, c: []});
     }
 
     function requestLoad(name, mod, ctx) {
         var m: Module,
-            path = getPath(name);
+            path = getPath(name),
+            existed;
 
         if (name == 'exports') {
             m = { v: {} };
             resolve(mod, m.v);
+            return m;
         } else {
-            m = modules[path];
+            existed = modules[name];
+            m = getModule(name);
         }
 
-        if (!m) {
+        DEBUG && console.log('Looking for ' + name + ', found ' + m)
+
+        if (!existed && !requested[path]) { // Not yet loaded
             ++ctx.n;
-            
-            m = getModule(name);
+
+            requested[path] = true;
+
+            DEBUG && console.log('Requesting ' + path);
+
+            if (SIMULATE_RANDOM_404 && Math.random() < 0.3) {
+                path += '_spam';
+            }
             
             // type = 'text/javascript' is default
             var node = document.createElement('script');
             node.async = true;
             node.src = path;
-            node.onload = function () { loadSuccess(m, ctx); --ctx.n; depDone(ctx); };
-            node.onerror = loadError;
-            head.appendChild(node);
+            node.onload = function () { ctx.s = m; flushDefines(ctx); --ctx.n; depDone(ctx); };
+            node.onerror = function () { clearTimeout(ctx.t); throw 'Error loading ' + m.n; };
+
+            if (!SIMULATE_TIMEOUT) {
+                head.appendChild(node)
+            } else {
+                setTimeout(function () { head.appendChild(node) }, (conf.waitSeconds || default_timeout) * 1000 * 2);
+            }
+            
         }
+
         return m;
     }
     
@@ -128,15 +169,19 @@ declare var require: Require;
             }
         }
 
-        then(defPromise, (singleMod, ctx) => {
-            mod = mod || singleMod;
+        DEBUG && console.log('Schedule define called ' + name);
+        then(defPromise, ctx => {
+            if (!mod) { mod = ctx.s; ctx.s = null; }
 
-            // TODO: If mod is not set, this is an ambiguous anonymous module
+            if (MISUSE_CHECK && !mod) throw 'Ambiguous anonymous module';
 
             var depPromises = deps.map(depName => requestLoad(depName, mod, ctx));
 
             then(ctx, () => {
-                resolve(mod, def.apply(null, depPromises.map(p => p.v))); // TODO: If p.v is not set, we have an unbroken circular dependency
+                resolve(mod, def.apply(null, depPromises.map(p => {
+                    if (MISUSE_CHECK && !p.v) throw 'Unresolved cyclic reference of ' + p.n;
+                    return p.v;
+                })));
             });
             depDone(ctx);
         });
