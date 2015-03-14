@@ -35,7 +35,6 @@ declare var define: Define;
 declare var require: Require;
 
 (function (global) {
-
     /** @const */
     var DEBUG = false;
     /** @const */
@@ -151,7 +150,6 @@ declare var require: Require;
             } else {
                 setTimeout(function () { head.appendChild(node) }, (conf.waitSeconds || default_timeout) * 1000 * 2);
             }
-            
         }
 
         return m;
