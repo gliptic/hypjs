@@ -1,0 +1,10 @@
+{
+  "name": "amd",
+  "version": "0.0.1",
+  "description": "",
+  "author": "Erik Lindroos <gliptic@gmail.com>",
+  "devDependencies": {
+    "gulp": "^3.8.11",
+    "gulp-typescript": "^2.4.2"
+  }
+}

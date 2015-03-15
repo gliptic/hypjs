@@ -6,6 +6,8 @@
         "target": "es5"
     }, 
     "files": [
-        "src/amd.ts"
+        "amd.ts",
+        "transducers.ts",
+        "test.ts"
     ]
 }
