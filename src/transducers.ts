@@ -24,7 +24,7 @@ interface Iterator {
 }
 
 interface Reducer {
-	(input, res): any; // step
+	(input, res, o?): any; // step
 	a?: () => any; // initial
 	b?: (v) => any; // result
 }
@@ -43,7 +43,9 @@ define(function () {
 		return x === void 0;
 	}
 
-	var arrayReducer: Reducer = defaultReducer({a: () => [], b: id}, (v, arr) => { arr.push(v); return arr; });
+	var arrayReducer: Reducer = defaultReducer(
+		{ a: () => [], b: id },
+		(v, arr) => { arr.push(v); return arr; });
 	
 	var protocolIterator = Symbol ? Symbol.iterator : '@@iterator';
 
@@ -80,10 +82,8 @@ define(function () {
 	function arrayBind(coll, f, res) {
 		var i = 0;
 			
-		for (; i < coll.length; ++i) {
+		for (; !isReduced(res) && i < coll.length; ++i) {
 			res = f(coll[i], res);
-			if (isReduced(res))
-				return res;
 		}
 
 		return res;
@@ -102,11 +102,8 @@ define(function () {
 			result = init;
 
 			var iter = iterator(coll), val;
-				
-			for (;val = iter.next(), !val.done;) {
+			for (;val = iter.next(), !isReduced(result) && !val.done;) {
 				result = reducer(val.value, result);
-				if (isReduced(result))
-					return result;
 			}
 		}
 
@@ -119,7 +116,7 @@ define(function () {
 		return transduce(coll, xform, arrayReducer, to);
 	}
 
-	function defaultReducer(reducer, f) {
+	function defaultReducer(reducer, f: Reducer) {
 		f.a = reducer.a;
 		f.b = reducer.b;
 		return f;
@@ -137,21 +134,13 @@ define(function () {
 		};
 	}
 
-	function take(n: number)/*: Transducer*/ {
+	function take(n: number): Transducer {
 		return reducer => {
 			var l = n;
 			return defaultReducer(reducer, (input, res) => {
 				// TODO: It would be better if this was reduced on the last
 				// call like in the original. Find some neat way to do that.
 				return l-- > 0 ? reducer(input, res) : reduced(res);
-			});
-		};
-	}
-
-	function takeWhile(f: (v: any) => boolean): Transducer {
-		return reducer => {
-			return defaultReducer(reducer, (input, res) => {
-				return f(input) ? reducer(input, res) : reduced(res);
 			});
 		};
 	}
@@ -164,6 +153,14 @@ define(function () {
 		};
 	}
 
+	function takeWhile(f: (v: any) => boolean): Transducer {
+		return reducer => {
+			return defaultReducer(reducer, (input, res) => {
+				return f(input) ? reducer(input, res) : reduced(res);
+			});
+		};
+	}
+
 	function dropWhile(f: (v: any) => boolean): Transducer {
 		return reducer => {
 			var f2: any = f;
@@ -172,12 +169,12 @@ define(function () {
 		};
 	}
 
-	// Concatenate a sequence of collections into one sequence
+	// Concatenate a sequence of reducible objects into one sequence
 	function cat(reducer: Reducer): Reducer {
 		return defaultReducer(reducer, (input, res) => {
 			var innerReducer = defaultReducer(reducer, (input2, res2) => {
 				var val = reducer(input2, res2);
-				return isReduced(val) ? val.v : val;
+				return isReduced(val) ? reduced(val) : val;
 			});
 
 			return reduce(input, innerReducer, res);
