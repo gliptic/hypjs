@@ -25,7 +25,6 @@ interface Iterator {
 
 interface ResultRef {
 	v: any;
-	c: number;
 }
 
 interface Reducer {
@@ -80,32 +79,34 @@ define(function () {
 	}
 
 	function arrayBind(coll, f, res: ResultRef) {
-		for (var i = 0; !res.c && i < coll.length; ++i) {
-			f(coll[i], res);
+		var c = 0;
+		for (var i = 0; !c && i < coll.length; ++i) {
+			c = f(coll[i], res);
 		}
+		return c;
 	}
 
 	function reduce(coll, reducer: Reducer, init?) {
-		var result = { v: isUndef(result) ? reducer.a && reducer.a() : result, c: 0 };
+		var result = { v: isUndef(result) ? reducer.a && reducer.a() : result };
 		internalReduce(coll, reducer, result);
 		return result.v;
 	}
 
 	function internalReduce(coll, reducer: Reducer, result?: ResultRef) {
-		
+		var c = 0;
 		if (Array.isArray(coll)) {
-			arrayBind(coll, reducer, result);
+			c = arrayBind(coll, reducer, result);
 		} else if (coll.then) {
-			coll.then(reducer, result);
+			c = coll.then(reducer, result);
 		} else {
 			var iter = iterator(coll), val;
-			for (;val = iter.next(), !result.c && !val.done;) {
-				reducer(val.value, result);
+			for (;val = iter.next(), !c && !val.done;) {
+				c = reducer(val.value, result);
 			}
 		}
 
-		if (result.c) --result.c;
 		if (reducer.b) reducer.b(result);
+		return c && c - 1;
 	}
 
 	function into<T>(to: T, coll: any, xform: Transducer): T {
@@ -120,13 +121,13 @@ define(function () {
 
 	function map(f: (v: any) => any): Transducer {
 		return reducer => {
-			return defaultReducer(reducer, (input, res) => { reducer(f(input), res) });
+			return defaultReducer(reducer, (input, res) => { return reducer(f(input), res); });
 		};
 	}
 
 	function filter(f: (v: any) => boolean): Transducer {
 		return reducer => {
-			return defaultReducer(reducer, (input, res) => { if (f(input)) reducer(input, res); });
+			return defaultReducer(reducer, (input, res) => { return (f(input)) ? reducer(input, res) : 0; });
 		};
 	}
 
@@ -136,7 +137,7 @@ define(function () {
 			return defaultReducer(reducer, (input, res) => {
 				// TODO: It would be better if this was reduced on the last
 				// call like in the original. Find some neat way to do that.
-				--l < 0 ? ++res.c : reducer(input, res);
+				return --l < 0 ? 1 : reducer(input, res);
 			});
 		};
 	}
@@ -145,7 +146,7 @@ define(function () {
 		return reducer => {
 			var l = n;
 			return defaultReducer(reducer, (input, res) => {
-				if (--l < 0) reducer(input, res);
+				return (--l < 0) ? reducer(input, res) : 1;
 			});
 		};
 	}
@@ -153,7 +154,7 @@ define(function () {
 	function takeWhile(f: (v: any) => boolean): Transducer {
 		return reducer => {
 			return defaultReducer(reducer, (input, res) => {
-				f(input) ? reducer(input, res) : ++res.c;
+				return f(input) ? reducer(input, res) : 1;
 			});
 		};
 	}
@@ -162,7 +163,9 @@ define(function () {
 		return reducer => {
 			var f2: any = f;
 			return defaultReducer(reducer, (input, res) => {
-				(f2 && f2(input)) || (f2 = 0, reducer(input, res));
+				var c = 0;
+				(f2 && f2(input)) || (f2 = 0, c = reducer(input, res));
+				return c;
 			});
 		};
 	}
@@ -171,11 +174,11 @@ define(function () {
 	function cat(reducer: Reducer): Reducer {
 		return defaultReducer(reducer, (input, res) => {
 			var innerReducer = defaultReducer(reducer, (input2, res2) => {
-				reducer(input2, res2);
-				if (res2.c) ++res2.c;
+				var c2 = reducer(input2, res2);
+				return c2 && c2 + 1;
 			});
 
-			internalReduce(input, innerReducer, res);
+			return internalReduce(input, innerReducer, res);
 		});
 	}
 
@@ -185,10 +188,9 @@ define(function () {
 	}
 
 	function pusher(r: Reducer, init: any): (v: any) => boolean {
-		var result = { v: init.v, c: 0 };
+		var result = { v: init.v };
 		return v => {
-			r(v, result);
-			return <any>result.c;
+			return r(v, <any>result);
 		};
 	}
 
