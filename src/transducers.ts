@@ -44,13 +44,16 @@ define(function () {
 		return v;
 	}
 
+	function nop() {
+	}
+
 	function isUndef(x): boolean {
 		return x === void 0;
 	}
 
 	var arrayReducer: Reducer = defaultReducer(
-		{ a: () => [], b: id },
-		(v, arr) => { arr.push(v); return arr; });
+		{ a: () => [], b: nop },
+		(v, arr: ResultRef) => { arr.v.push(v); });
 	
 	var protocolIterator = Symbol ? Symbol.iterator : '@@iterator';
 
@@ -72,42 +75,37 @@ define(function () {
 		}
 	}
 
-	function transduce(coll, xform: Transducer, reducer: Reducer, init?): any {
+	function transduce<T>(coll, xform: Transducer, reducer: Reducer, init?: T): T {
 		return reduce(coll, xform(reducer), init);
 	}
 
-	function reduced(value) {
-		return { __:reduced, v: value };
-	}
-
-	function isReduced(x): boolean {
-		return x && x.__ == reduced;
-	}
-
-	function arrayBind(coll, f, res) {
-		
-		for (var i = 0; !isReduced(res) && i < coll.length; ++i) {
-			res = f(coll[i], res);
+	function arrayBind(coll, f, res: ResultRef) {
+		for (var i = 0; !res.c && i < coll.length; ++i) {
+			f(coll[i], res);
 		}
-
-		return res;
 	}
 
-	function reduce(coll, reducer: Reducer, result?) {
-		if (isUndef(result) && reducer.a) result = reducer.a();
+	function reduce(coll, reducer: Reducer, init?) {
+		var result = { v: isUndef(result) ? reducer.a && reducer.a() : result, c: 0 };
+		internalReduce(coll, reducer, result);
+		return result.v;
+	}
 
+	function internalReduce(coll, reducer: Reducer, result?: ResultRef) {
+		
 		if (Array.isArray(coll)) {
-			result = arrayBind(coll, reducer, result);
+			arrayBind(coll, reducer, result);
 		} else if (coll.then) {
-			result = coll.then(reducer, result);
+			coll.then(reducer, result);
 		} else {
 			var iter = iterator(coll), val;
-			for (;val = iter.next(), !isReduced(result) && !val.done;) {
-				result = reducer(val.value, result);
+			for (;val = iter.next(), !result.c && !val.done;) {
+				reducer(val.value, result);
 			}
 		}
 
-		return (reducer.b || id)(isReduced(result) ? result.v : result);
+		if (result.c) --result.c;
+		if (reducer.b) reducer.b(result);
 	}
 
 	function into<T>(to: T, coll: any, xform: Transducer): T {
@@ -115,20 +113,20 @@ define(function () {
 	}
 
 	function defaultReducer(reducer, f: Reducer) {
-		f.a = reducer.a;
-		f.b = reducer.b;
+		if (reducer.a) f.a = reducer.a;
+		if (reducer.b) f.b = reducer.b;
 		return f;
 	}
 
 	function map(f: (v: any) => any): Transducer {
 		return reducer => {
-			return defaultReducer(reducer, (input, res) => reducer(f(input), res));
+			return defaultReducer(reducer, (input, res) => { reducer(f(input), res) });
 		};
 	}
 
 	function filter(f: (v: any) => boolean): Transducer {
 		return reducer => {
-			return defaultReducer(reducer, (input, res) => f(input) ? reducer(input, res) : res);
+			return defaultReducer(reducer, (input, res) => { if (f(input)) reducer(input, res); });
 		};
 	}
 
@@ -138,7 +136,7 @@ define(function () {
 			return defaultReducer(reducer, (input, res) => {
 				// TODO: It would be better if this was reduced on the last
 				// call like in the original. Find some neat way to do that.
-				return l-- > 0 ? reducer(input, res) : reduced(res);
+				--l < 0 ? ++res.c : reducer(input, res);
 			});
 		};
 	}
@@ -146,15 +144,16 @@ define(function () {
 	function drop(n: number): Transducer {
 		return reducer => {
 			var l = n;
-			return defaultReducer(reducer, (input, res) =>
-				(l-- > 0) ? res : reducer(input, res));
+			return defaultReducer(reducer, (input, res) => {
+				if (--l < 0) reducer(input, res);
+			});
 		};
 	}
 
 	function takeWhile(f: (v: any) => boolean): Transducer {
 		return reducer => {
 			return defaultReducer(reducer, (input, res) => {
-				return f(input) ? reducer(input, res) : reduced(res);
+				f(input) ? reducer(input, res) : ++res.c;
 			});
 		};
 	}
@@ -162,8 +161,9 @@ define(function () {
 	function dropWhile(f: (v: any) => boolean): Transducer {
 		return reducer => {
 			var f2: any = f;
-			return defaultReducer(reducer, (input, res) =>
-				(f2 && f2(input)) ? res : (f2 = 0, reducer(input, res)));
+			return defaultReducer(reducer, (input, res) => {
+				(f2 && f2(input)) || (f2 = 0, reducer(input, res));
+			});
 		};
 	}
 
@@ -171,11 +171,11 @@ define(function () {
 	function cat(reducer: Reducer): Reducer {
 		return defaultReducer(reducer, (input, res) => {
 			var innerReducer = defaultReducer(reducer, (input2, res2) => {
-				var val = reducer(input2, res2);
-				return isReduced(val) ? reduced(val) : val;
+				reducer(input2, res2);
+				if (res2.c) ++res2.c;
 			});
 
-			return reduce(input, innerReducer, res);
+			internalReduce(input, innerReducer, res);
 		});
 	}
 
@@ -185,16 +185,16 @@ define(function () {
 	}
 
 	function pusher(r: Reducer, init: any): (v: any) => boolean {
-		var result = init;
+		var result = { v: init.v, c: 0 };
 		return v => {
-			result = r(v, result);
-			return !isReduced(result);
+			r(v, result);
+			return <any>result.c;
 		};
 	}
 
 	function counter(reducer: Reducer): Reducer {
 		var c = 0;
-		return defaultReducer(reducer, (input, res) => reducer([input, ++c], res));
+		return defaultReducer(reducer, (input, res) => { reducer([input, ++c], res) });
 	}
 
 	function everySecond(): Signal {
