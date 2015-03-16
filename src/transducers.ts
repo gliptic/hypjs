@@ -13,8 +13,8 @@ declare module "transducers" {
 }
 
 interface Signal {
+	(v: any): boolean;
 	then(r: (input, res) => any, init?: any): any;
-	send(v: any): boolean;
 }
 
 type IteratorResult = { value?: any; done?: boolean };
@@ -23,8 +23,13 @@ interface Iterator {
 	next(): IteratorResult;
 }
 
+interface ResultRef {
+	v: any;
+	c: number;
+}
+
 interface Reducer {
-	(input, res, o?): any; // step
+	(input, res: ResultRef): any; // step
 	a?: () => any; // initial
 	b?: (v) => any; // result
 }
@@ -80,36 +85,29 @@ define(function () {
 	}
 
 	function arrayBind(coll, f, res) {
-		var i = 0;
-			
-		for (; !isReduced(res) && i < coll.length; ++i) {
+		
+		for (var i = 0; !isReduced(res) && i < coll.length; ++i) {
 			res = f(coll[i], res);
 		}
 
 		return res;
 	}
 
-	function reduce(coll, reducer: Reducer, init?) {
-		var result;
+	function reduce(coll, reducer: Reducer, result?) {
+		if (isUndef(result) && reducer.a) result = reducer.a();
 
-		if (isUndef(init)) init = reducer.a && reducer.a();
-
-		if (coll instanceof Array) {
-			result = arrayBind(coll, reducer, init);
+		if (Array.isArray(coll)) {
+			result = arrayBind(coll, reducer, result);
 		} else if (coll.then) {
-			result = coll.then(reducer, init);
+			result = coll.then(reducer, result);
 		} else {
-			result = init;
-
 			var iter = iterator(coll), val;
 			for (;val = iter.next(), !isReduced(result) && !val.done;) {
 				result = reducer(val.value, result);
 			}
 		}
 
-		result = isReduced(result) ? result.v : result;
-		if (reducer.b) result = reducer.b(result);
-		return result;
+		return (reducer.b || id)(isReduced(result) ? result.v : result);
 	}
 
 	function into<T>(to: T, coll: any, xform: Transducer): T {
@@ -204,7 +202,7 @@ define(function () {
 
 		function set() {
 			setTimeout(() => {
-				if (sig.send(1)) set();
+				if (sig(1)) set();
 			}, 1000);
 		}
 
@@ -217,7 +215,7 @@ define(function () {
 		var sig = signal();
 
 		setTimeout(() => {
-			sig.send(v);
+			sig(v);
 		}, ms);
 		
 		return sig;
@@ -226,19 +224,16 @@ define(function () {
 	function signal(): Signal {
 		var reducers = [];
 
-		var ev = (v) => {
+		var ev: any = (v) => {
 			reducers = into([], reducers, filter(e => e(v)));
-			return !(!reducers.length && !s.then);
+			return !(!reducers.length && !ev.then);
 		};
 
-		var s = {
-			then: (r, init) => {
-				reducers.push(pusher(r, init));
-			},
-			send: ev
+		ev.then = (r, init) => {
+			reducers.push(pusher(r, init));
 		};
 
-		return s;
+		return ev;
 	}
 
 	return {

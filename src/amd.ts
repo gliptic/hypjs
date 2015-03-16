@@ -26,7 +26,7 @@ interface ModuleDict {
 }
 
 interface RequireContext extends Promise<void> {
-    n: number;
+    n?: number;
     s?: Module; // The single anonymous module for this context. This is set in onload.
     t?: number;
 }
@@ -46,21 +46,23 @@ declare var require: Require;
     /** @const */
     var default_timeout = 7;
 
-    global.require = <any>function (deps?: any, def?: (...d: any[]) => any) {
+    global.require = function (deps?: any, def?: (...d: any[]) => any) {
         global.define(deps, def);
 
         // There may be defines that haven't been processed here because they were
         // made outside a 'require' context. Those will automatically tag along into
         // this new context.
-        var ctx: RequireContext = { c: [], n: 0, s: {} };
+        var ctx: RequireContext = {
+            c: [],
+            n: 0,
+            s: {},
+            t: setTimeout(() => {
+                var n = ctx.n;
+                ctx.n = -1; // Make sure the context is never resolved
+                throw 'Timeout loading ' + n + ' modules';
+            }, (conf.waitSeconds || default_timeout)*1000) };
+
         flushDefines(ctx);
-
-
-        ctx.t = setTimeout(function () {
-            var n = ctx.n;
-            ctx.n = -1/0; // Make sure the context is never resolved
-            throw 'Timeout loading ' + n + ' modules';
-        }, (conf.waitSeconds || default_timeout)*1000)
     }
 
     global.require.config = function (c) {
@@ -86,7 +88,7 @@ declare var require: Require;
         }
     }
 
-    function depDone(ctx: RequireContext) {
+    function checkContextDone(ctx: RequireContext) {
         if (!ctx.n) {
             clearTimeout(ctx.t);
             DEBUG && console.log('Resolving context');
@@ -101,10 +103,8 @@ declare var require: Require;
     }
 
     function getPath(name: string): string {
-        var path = conf.paths[name] || name;
-        return (conf.baseUrl || '')
-             + path
-             + (/\.js$/.test(path) ? '' : '.js'); // Auto-add .js if missing
+        var path = (conf.baseUrl || '') + (conf.paths[name] || name);
+        return path + (/\.js$/.test(path) ? '' : '.js'); // Auto-add .js if missing
     }
 
     function getModule(name: string): Module {
@@ -140,10 +140,10 @@ declare var require: Require;
             
             // type = 'text/javascript' is default
             var node = document.createElement('script');
-            node.async = true;
+            node.async = true; // TODO: We don't need this in new browsers as it's default.
             node.src = path;
-            node.onload = function () { ctx.s = m; flushDefines(ctx); --ctx.n; depDone(ctx); };
-            node.onerror = function () { clearTimeout(ctx.t); throw 'Error loading ' + m.n; };
+            node.onload = () => { ctx.s = m; flushDefines(ctx); --ctx.n; checkContextDone(ctx); };
+            node.onerror = () => { clearTimeout(ctx.t); throw 'Error loading ' + m.n; };
 
             if (!SIMULATE_TIMEOUT) {
                 head.appendChild(node)
@@ -182,7 +182,7 @@ declare var require: Require;
                     return p.v;
                 })));
             });
-            depDone(ctx);
+            checkContextDone(ctx); // We need to do this here in case ctx.n wasn't changed at all
         });
     }
 
