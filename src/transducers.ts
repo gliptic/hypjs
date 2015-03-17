@@ -23,14 +23,11 @@ interface Iterator {
 	next(): IteratorResult;
 }
 
-interface ResultRef {
-	v: any;
-}
-
 interface Reducer {
-	(input, res: ResultRef): any; // step
+	(input, res): any; // step
 	a?: () => any; // initial
 	b?: (v) => any; // result
+	c?: (v) => any; // clone
 }
 
 type Transducer = (t: Reducer) => Reducer;
@@ -52,14 +49,14 @@ define(function () {
 
 	var arrayReducer: Reducer = defaultReducer(
 		{ a: () => [], b: nop },
-		(v, arr: ResultRef) => { arr.v.push(v); });
+		(v, arr) => { arr.push(v); });
 	
 	var protocolIterator = Symbol ? Symbol.iterator : '@@iterator';
 
 	function iterator(coll): Iterator {
 		var iter = coll[protocolIterator];
 		if (iter) return iter.call(coll);
-		else if (coll.next) return coll;
+		return coll; // Assume it is an iterator already
 	}
 
 	function compose(...p: Transducer[]): Transducer;
@@ -78,7 +75,7 @@ define(function () {
 		return reduce(coll, xform(reducer), init);
 	}
 
-	function arrayBind(coll, f, res: ResultRef) {
+	function arrayBind(coll, f, res) {
 		var c = 0;
 		for (var i = 0; !c && i < coll.length; ++i) {
 			c = f(coll[i], res);
@@ -87,12 +84,12 @@ define(function () {
 	}
 
 	function reduce(coll, reducer: Reducer, init?) {
-		var result = { v: isUndef(result) ? reducer.a && reducer.a() : result };
+		var result = init || (reducer.a && reducer.a());
 		internalReduce(coll, reducer, result);
-		return result.v;
+		return result;
 	}
 
-	function internalReduce(coll, reducer: Reducer, result?: ResultRef) {
+	function internalReduce(coll, reducer: Reducer, result?) {
 		var c = 0;
 		if (Array.isArray(coll)) {
 			c = arrayBind(coll, reducer, result);
@@ -100,13 +97,13 @@ define(function () {
 			c = coll.then(reducer, result);
 		} else {
 			var iter = iterator(coll), val;
-			for (;val = iter.next(), !c && !val.done;) {
+			for (;val = iter.next(), !(c || val.done);) {
 				c = reducer(val.value, result);
 			}
 		}
 
 		if (reducer.b) reducer.b(result);
-		return c && c - 1;
+		return c;
 	}
 
 	function into<T>(to: T, coll: any, xform: Transducer): T {
@@ -119,6 +116,16 @@ define(function () {
 		return f;
 	}
 
+	function reducep(f: Reducer, init?) {
+		var result = init || (f.a && f.a());
+		return reducer => {
+			return defaultReducer(reducer, (input, res) => {
+				f(input, result);
+				return reducer(result, res);
+			});
+		};
+	}
+
 	function map(f: (v: any) => any): Transducer {
 		return reducer => {
 			return defaultReducer(reducer, (input, res) => { return reducer(f(input), res); });
@@ -127,7 +134,7 @@ define(function () {
 
 	function filter(f: (v: any) => boolean): Transducer {
 		return reducer => {
-			return defaultReducer(reducer, (input, res) => { return (f(input)) ? reducer(input, res) : 0; });
+			return defaultReducer(reducer, (input, res) => { return f(input) && reducer(input, res); });
 		};
 	}
 
@@ -135,9 +142,7 @@ define(function () {
 		return reducer => {
 			var l = n;
 			return defaultReducer(reducer, (input, res) => {
-				// TODO: It would be better if this was reduced on the last
-				// call like in the original. Find some neat way to do that.
-				return --l < 0 ? 1 : reducer(input, res);
+				return --l < 0 || reducer(input, res) || !l;
 			});
 		};
 	}
@@ -146,7 +151,7 @@ define(function () {
 		return reducer => {
 			var l = n;
 			return defaultReducer(reducer, (input, res) => {
-				return (--l < 0) ? reducer(input, res) : 1;
+				return --l < 0 && reducer(input, res);
 			});
 		};
 	}
@@ -154,7 +159,7 @@ define(function () {
 	function takeWhile(f: (v: any) => boolean): Transducer {
 		return reducer => {
 			return defaultReducer(reducer, (input, res) => {
-				return f(input) ? reducer(input, res) : 1;
+				return !f(input) || reducer(input, res);
 			});
 		};
 	}
@@ -163,9 +168,7 @@ define(function () {
 		return reducer => {
 			var f2: any = f;
 			return defaultReducer(reducer, (input, res) => {
-				var c = 0;
-				(f2 && f2(input)) || (f2 = 0, c = reducer(input, res));
-				return c;
+				return !f2 || !f2(input) && (f2 = 0, reducer(input, res));
 			});
 		};
 	}
@@ -173,12 +176,8 @@ define(function () {
 	// Concatenate a sequence of reducible objects into one sequence
 	function cat(reducer: Reducer): Reducer {
 		return defaultReducer(reducer, (input, res) => {
-			var innerReducer = defaultReducer(reducer, (input2, res2) => {
-				var c2 = reducer(input2, res2);
-				return c2 && c2 + 1;
-			});
-
-			return internalReduce(input, innerReducer, res);
+			// Wrap reducer to make .b into the identity function
+			return internalReduce(input, (input2, res2) => reducer(input2, res2), res);
 		});
 	}
 
@@ -187,16 +186,25 @@ define(function () {
 		return compose(map(f), cat);
 	}
 
-	function pusher(r: Reducer, init: any): (v: any) => boolean {
-		var result = { v: init.v };
-		return v => {
-			return r(v, <any>result);
+	function bufferAll(r: Reducer) {
+		var buffer = [];
+		var f: Reducer = (input, res) => { buffer.push(input); console.log('Pushing', input); };
+		f.a = r.a;
+		f.b = res => {
+			console.log('Passing', buffer);
+			r(buffer, res)
 		};
+		return f;
+	}
+
+	function process(r: Reducer, result?: any): (v: any) => boolean {
+		var c = false;
+		return v => c || (c = r(v, result));
 	}
 
 	function counter(reducer: Reducer): Reducer {
 		var c = 0;
-		return defaultReducer(reducer, (input, res) => { reducer([input, ++c], res) });
+		return defaultReducer(reducer, (input, res) => reducer([input, ++c], res));
 	}
 
 	function everySecond(): Signal {
@@ -227,12 +235,12 @@ define(function () {
 		var reducers = [];
 
 		var ev: any = (v) => {
-			reducers = into([], reducers, filter(e => e(v)));
-			return !(!reducers.length && !ev.then);
+			reducers = reducers.filter(e => e(v));
+			return !!reducers.length || !!ev.then;
 		};
 
-		ev.then = (r, init) => {
-			reducers.push(pusher(r, init));
+		ev.then = proc => {
+			reducers.push(proc);
 		};
 
 		return ev;
@@ -250,10 +258,13 @@ define(function () {
 		dropWhile: dropWhile,
 		cat: cat,
 		mapcat: mapcat,
+		reducep: reducep,
+		reduce: reduce,
+		bufferAll: bufferAll,
 		//counter: counter,
 
 		// Signals
-		//pusher: pusher,
+		process: process,
 		//everySecond: everySecond,
 		after: after,
 		//signal: signal,

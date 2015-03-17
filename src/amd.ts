@@ -44,7 +44,13 @@ declare var require: Require;
     /** @const */
     var SIMULATE_RANDOM_404 = false;
     /** @const */
-    var default_timeout = 7;
+    var DefaultTimeout = 7;
+
+    // tsc still outputs lots of crap for enums so we'll have to make do with this.
+    /** @const */
+    var TimeOut = 0;
+    /** @const */
+    var LoadError = 1;
 
     global.require = function (deps?: any, def?: (...d: any[]) => any) {
         global.define(deps, def);
@@ -57,23 +63,31 @@ declare var require: Require;
             n: 0,
             s: {},
             t: setTimeout(() => {
-                var n = ctx.n;
-                ctx.n = -1; // Make sure the context is never resolved
-                throw 'Timeout loading ' + n + ' modules';
-            }, (conf.waitSeconds || default_timeout)*1000) };
+                if (ctx.c) { // If we haven't resolved the context yet...
+                    // Time-out
+                    ctx.n = 0/1; // Make sure the context is never resolved
+                    err(TimeOut);
+                }
+            }, (conf.waitSeconds || DefaultTimeout)*1000) };
 
         flushDefines(ctx);
     }
 
+    function errstr(e) {
+        return ["Timeout loading module", "Error loading module"][e];
+    }
+
     global.require.config = function (c) {
         conf = c;
+        err = c.error || (e => { throw errstr(e); });
     }
 
     var head = document.getElementsByTagName('head')[0],
         modules: ModuleDict = { require: { v: global.require } },
         defPromise: Promise<RequireContext> = { c: [] },
         requested = {},
-        conf;
+        conf,
+        err;
 
     function then<T>(m: Promise<T>, f: (m: T, ctx?: any) => void) {
         // We use unshift so that we can use a promise for post-order traversal too
@@ -90,7 +104,6 @@ declare var require: Require;
 
     function checkContextDone(ctx: RequireContext) {
         if (!ctx.n) {
-            clearTimeout(ctx.t);
             DEBUG && console.log('Resolving context');
             resolve(ctx);
         }
@@ -103,8 +116,7 @@ declare var require: Require;
     }
 
     function getPath(name: string): string {
-        var path = (conf.baseUrl || '') + (conf.paths[name] || name);
-        return path + (/\.js$/.test(path) ? '' : '.js'); // Auto-add .js if missing
+        return (conf.baseUrl || '') + (conf.paths[name] || name) + '.js';
     }
 
     function getModule(name: string): Module {
@@ -114,41 +126,39 @@ declare var require: Require;
     function requestLoad(name, mod, ctx) {
         var m: Module,
             path = getPath(name),
-            existed;
+            existing = modules[name];
 
         if (name == 'exports') {
             m = { v: {} };
             resolve(mod, m.v);
-            return m;
         } else {
-            existed = modules[name];
             m = getModule(name);
-        }
 
-        DEBUG && console.log('Looking for ' + name + ', found ' + m)
+            DEBUG && console.log('Looking for ' + name + ', found ' + m)
 
-        if (!existed && !requested[path]) { // Not yet loaded
-            ++ctx.n;
+            if (!existing && !requested[path]) { // Not yet loaded
+                ++ctx.n;
 
-            requested[path] = true;
+                requested[path] = true;
 
-            DEBUG && console.log('Requesting ' + path);
+                DEBUG && console.log('Requesting ' + path);
 
-            if (SIMULATE_RANDOM_404 && Math.random() < 0.3) {
-                path += '_spam';
-            }
-            
-            // type = 'text/javascript' is default
-            var node = document.createElement('script');
-            node.async = true; // TODO: We don't need this in new browsers as it's default.
-            node.src = path;
-            node.onload = () => { ctx.s = m; flushDefines(ctx); --ctx.n; checkContextDone(ctx); };
-            node.onerror = () => { clearTimeout(ctx.t); throw 'Error loading ' + m.n; };
+                if (SIMULATE_RANDOM_404 && Math.random() < 0.3) {
+                    path += '_spam';
+                }
+                
+                // type = 'text/javascript' is default
+                var node = document.createElement('script');
+                node.async = true; // TODO: We don't need this in new browsers as it's default.
+                node.src = path;
+                node.onload = () => { ctx.s = m; flushDefines(ctx); --ctx.n; checkContextDone(ctx); };
+                node.onerror = () => { ctx.n = 0/1; err(LoadError, m.n); };
 
-            if (!SIMULATE_TIMEOUT) {
-                head.appendChild(node)
-            } else {
-                setTimeout(function () { head.appendChild(node) }, (conf.waitSeconds || default_timeout) * 1000 * 2);
+                if (!SIMULATE_TIMEOUT) {
+                    head.appendChild(node);
+                } else if (Math.random() < 0.3) {
+                    setTimeout(function () { head.appendChild(node) }, (conf.waitSeconds || DefaultTimeout) * 1000 * 2);
+                }
             }
         }
 
