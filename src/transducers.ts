@@ -25,14 +25,12 @@ interface Iterator {
 }
 
 interface Reducer {
-	(input, res): any; // step
-	a?: () => any; // initial
-	b?: (v) => void; // result
-	c?: (v) => any; // clone
-	d?: (v, diff) => void;
+	(input, res?): any; // step
+	b?: (v?) => void; // result
+	d?: (diff) => void;
 }
 
-type Transducer = (t: Reducer) => Reducer;
+type Transducer = (t?: any) => Reducer;
 
 declare var Symbol: any;
 
@@ -52,14 +50,18 @@ define(function () {
 		return x === void 0;
 	}
 
-	var arrayReducer: Reducer = defaultReducer(
-		{ a: () => [], b: nop },
-		(v, arr) => { arr.push(v); });
+	var arrayReducer: Transducer = s => {
+		s = s || [];
+		return defaultReducer({ b: () => s },
+			v => { s.push(v); })
+	};
 
-	var objReducer: Reducer = defaultReducer(
-		{ a: () => {}, b: nop },
-		objMerge);
-	
+	var objReducer: Transducer = s => {
+		s = s || {};
+		return defaultReducer({ b: () => s },
+			v => objMerge(v, s));
+	};
+
 	var protocolIterator = Symbol ? Symbol.iterator : '@@iterator';
 
 	function iterator(coll): Iterator {
@@ -79,11 +81,11 @@ define(function () {
 		}
 	}
 
-	function transduce<T>(coll, xform: Transducer, reducer: Reducer, init?: T): T {
-		return reduce(coll, xform(reducer), init);
+	function transduce<T>(coll, xform: Transducer, init?: T): T {
+		return reduce(coll, xform(init));
 	}
 
-	function arrayBind(coll, f, res?) {
+	function arrayBind(coll, f) {
 		
 		/*
 		var c = 0;
@@ -92,10 +94,10 @@ define(function () {
 		}
 		return c;
 		*/
-		return coll.some(v => <any>f(v, res)); // TODO: Measure performance, for vs. forEach vs. some
+		return coll.some(v => <any>f(v)); // TODO: Measure performance, for vs. forEach vs. some
 	}
 
-	function objBind(coll, f, res?) {
+	function objBind(coll, f) {
 		/*
 		var c = 0;
 		arrayBind(Object.keys(coll), k => {
@@ -103,7 +105,7 @@ define(function () {
 		});
 		return c;
 		*/
-		return Object.keys(coll).some(k => <any>f([k, coll[k]], res));
+		return Object.keys(coll).some(k => <any>f([k, coll[k]]));
 		
 	}
 
@@ -124,71 +126,67 @@ define(function () {
 			return arrayReducer; // Default to array
 	}
 
-	function reduce(coll, reducer: Reducer, init?) {
-		var result = init || (reducer.a && reducer.a());
-		internalReduce(coll, reducer, result);
-		return result;
+	function reduce(coll, reducer: Reducer): any {
+		internalReduce(coll, reducer);
+		return reducer.b && reducer.b();
 	}
 
-	function internalReduce(coll, reducer: Reducer, result?, skipFinish?: boolean) {
+	function internalReduce(coll, reducer: Reducer) {
 		var c = false;
 		if (Array.isArray(coll)) {
-			c = arrayBind(coll, reducer, result);
+			c = arrayBind(coll, reducer);
 		} else if (coll.then) {
-			c = coll.then(reducer, result);
+			c = coll.then(reducer);
 		} else {
 			var iter = iterator(coll), val;
 			if (!iter) {
-				c = objBind(coll, reducer, result);
+				c = objBind(coll, reducer);
 			} else {
 				for (;val = iter.next(), !(c || val.done);) {
-					c = reducer(val.value, result);
+					c = reducer(val.value);
 				}	
 			}
 			
 		}
 
-		if (!skipFinish && reducer.b) reducer.b(result);
 		return c;
 	}
 
 	function into<T>(to: T, coll: any, xform: Transducer): T {
-		return transduce(coll, xform, getReducer(to), to);
+		return transduce(coll, compose(xform, getReducer(to)), to);
 	}
 
 	function defaultReducer(reducer, f: Reducer) {
-		if (reducer.a) f.a = reducer.a;
 		if (reducer.b) f.b = reducer.b;
 		return f;
 	}
 
-	function reducep(f: Reducer, init?) {
-		var result = init || (f.a && f.a());
+	function reducep(f: Reducer) {
 		return reducer => {
-			return defaultReducer(reducer, (input, res) => {
-				f(input, result);
-				return reducer(result, res);
+			return defaultReducer(reducer, (input) => {
+				f(input);
+				return reducer(f.b());
 			});
 		};
 	}
 
 	function map(f: (v: any) => any): Transducer {
 		return reducer => {
-			return defaultReducer(reducer, (input, res) => { return reducer(f(input), res); });
+			return defaultReducer(reducer, (input) => { return reducer(f(input)); });
 		};
 	}
 
 	function filter(f: (v: any) => boolean): Transducer {
 		return reducer => {
-			return defaultReducer(reducer, (input, res) => { return f(input) && reducer(input, res); });
+			return defaultReducer(reducer, (input) => { return f(input) && reducer(input); });
 		};
 	}
 
 	function take(n: number): Transducer {
 		return reducer => {
 			var l = n;
-			return defaultReducer(reducer, (input, res) => {
-				return --l < 0 || reducer(input, res) || !l;
+			return defaultReducer(reducer, (input) => {
+				return --l < 0 || reducer(input) || !l;
 			});
 		};
 	}
@@ -196,16 +194,16 @@ define(function () {
 	function drop(n: number): Transducer {
 		return reducer => {
 			var l = n;
-			return defaultReducer(reducer, (input, res) => {
-				return --l < 0 && reducer(input, res);
+			return defaultReducer(reducer, (input) => {
+				return --l < 0 && reducer(input);
 			});
 		};
 	}
 
 	function takeWhile(f: (v: any) => boolean): Transducer {
 		return reducer => {
-			return defaultReducer(reducer, (input, res) => {
-				return !f(input) || reducer(input, res);
+			return defaultReducer(reducer, (input) => {
+				return !f(input) || reducer(input);
 			});
 		};
 	}
@@ -213,8 +211,8 @@ define(function () {
 	function dropWhile(f: (v: any) => boolean): Transducer {
 		return reducer => {
 			var f2: any = f;
-			return defaultReducer(reducer, (input, res) => {
-				return !f2 || !f2(input) && (f2 = 0, reducer(input, res));
+			return defaultReducer(reducer, (input) => {
+				return !f2 || !f2(input) && (f2 = 0, reducer(input));
 			});
 		};
 	}
@@ -222,8 +220,8 @@ define(function () {
 	// Concatenate a sequence of reducible objects into one sequence
 	function cat(): Transducer {
 		return (reducer: Reducer) => {
-			return defaultReducer(reducer, (input, res) => {
-				return internalReduce(input, reducer, res, true);
+			return defaultReducer(reducer, (input) => {
+				return internalReduce(input, reducer);
 			});
 		};
 	}
@@ -244,14 +242,14 @@ define(function () {
 		return f;
 	}*/
 
-	function process(r: Reducer, result?: any): (v: any) => boolean {
+	function process(r: Reducer): (v: any) => boolean {
 		var c = false;
-		return v => c || (c = r(v, result));
+		return v => c || (c = r(v));
 	}
 
 	function counter(reducer: Reducer): Reducer {
 		var c = 0;
-		return defaultReducer(reducer, (input, res) => reducer([input, ++c], res));
+		return defaultReducer(reducer, (input) => reducer([input, ++c]));
 	}
 
 	function everySecond(): Signal {
@@ -268,7 +266,7 @@ define(function () {
 		return sig;
 	}
 
-	function after(ms: number, v?: any): Signal {
+	function delay(ms: number, v?: any): Signal {
 		var sig = signal();
 
 		setTimeout(() => {
@@ -282,21 +280,17 @@ define(function () {
 	function join(): Transducer {
 		return (reducer: Reducer) => {
 
-			var r: Reducer = (input, res) => reducer(input, res.s);
+			var o = 1, res: any = {};
 
-			r.a = function () {
-				return {
-					s: reducer.a && reducer.a(),
-					o: 1 // We count calling .b in outstanding
-				};
+			var r: Reducer = (input) => reducer(input);
+
+			r.b = function () {
+				r.d(-1);
+				return res;
 			};
 
-			r.b = function (res) {
-				r.d(res, -1);
-			};
-
-			r.d = function (res, diff) {
-				(res.o += diff) || res(res.s);
+			r.d = function (diff) {
+				(o += diff) || console.log(reducer.b());
 			}
 
 			return r;
@@ -313,15 +307,15 @@ define(function () {
 			return !!reducers.length || !!ev.then;
 		};
 
-		ev.then = (reducer: Reducer, result) => {
-			reducer.d && reducer.d(result, 1);
+		ev.then = (reducer: Reducer) => {
+			reducer.d && reducer.d(1);
 
 			var receiver: Reducer = function(input) {
-				return reducer(input, result);
+				return reducer(input);
 			}
 
 			receiver.b = function() {
-				reducer.d && reducer.d(result, -1);
+				reducer.d && reducer.d(-1);
 			}
 
 			reducers.push(receiver);
@@ -346,6 +340,7 @@ define(function () {
 		mapcat: mapcat,
 		cat: cat,
 		join: join,
+		toArray: () => arrayReducer
 	};
 
 	var mod;
@@ -363,7 +358,7 @@ define(function () {
 					lhs = this;
 				var td = r => lhs(rhs(r));
 				objBind(transducerFunctions, v2 => { td[v2[0]] = mod[v2[0]] });
-				td.apply = function (from, to) { return into(to, from, this); };
+				td.apply = function (from) { return transduce(from, this); };
 				return td;
 			}
 
@@ -400,9 +395,6 @@ define(function () {
 			into: into,
 			compose: compose,
 			
-			
-			arrayReducer: arrayReducer,
-			
 			reducep: reducep,
 			reduce: reduce,
 			//bufferAll: bufferAll,
@@ -411,7 +403,7 @@ define(function () {
 			// Signals
 			process: process,
 			//everySecond: everySecond,
-			after: after,
+			delay: delay,
 			//signal: signal,
 		}, mod);
 
