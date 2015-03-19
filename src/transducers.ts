@@ -1,36 +1,12 @@
-declare module "transducers" {
-	export function compose(...p: Transducer[]): Transducer;
-	export function transduce(coll, xform: Transducer, reducer: Reducer, init?): any;
-	export function into<T>(to: T, coll: any, xform: Transducer): T;
-	export function map(f: (v: any) => any): Transducer;
-	export function filter(f: (v: any) => boolean): Transducer;
-	export function take(n: number): Transducer;
-	export function takeWhile(f: (v: any) => boolean): Transducer;
-	export function drop(n: number): Transducer;
-	export function dropWhile(f: (v: any) => boolean): Transducer;
-	export function cat(r: Reducer): Reducer;
-	export function mapcat(f: (v: any) => any): Transducer;
-}
 
 interface Signal {
-	(v: any): boolean;
-	done(): any;
-	then(r: (input, res) => any, init?: any): any;
+	(vals: any[], done?: boolean): boolean;
+	then(r: Reducer): any;
 }
 
 type IteratorResult = { value?: any; done?: boolean };
 
-interface Iterator {
-	next(): IteratorResult;
-}
-
-interface Reducer {
-	(input, res?): any; // step
-	b?: (v?) => void; // result
-	d?: (diff) => void;
-}
-
-type Transducer = (t?: any) => Reducer;
+interface Iterator { next(): IteratorResult; }
 
 declare var Symbol: any;
 
@@ -38,6 +14,8 @@ define(function () {
 
 	/** @const */
 	var ENABLE_FLUENT = true;
+	/** @const */
+	var DEBUG = false;
 
 	function id(v) {
 		return v;
@@ -50,13 +28,13 @@ define(function () {
 		return x === void 0;
 	}
 
-	var arrayReducer: Transducer = s => {
+	var arrayReducer: Transducer = (_, s) => {
 		s = s || [];
 		return defaultReducer({ b: () => s },
 			v => { s.push(v); })
 	};
 
-	var objReducer: Transducer = s => {
+	var objReducer: Transducer = (_, s) => {
 		s = s || {};
 		return defaultReducer({ b: () => s },
 			v => objMerge(v, s));
@@ -69,23 +47,17 @@ define(function () {
 		if (iter) return iter.call(coll);
 	}
 
-	function compose(...p: Transducer[]): Transducer;
-	function compose() {
-		var args = arguments;
-		return function(r: Reducer) {
-			var value = r;
-			for(var i = args.length - 1; i >= 0; i--) {
-				value = args[i](value);
-			}
-			return value;
+	function compose(a: Transducer, b: Transducer) {
+		return function(r: Reducer, initial?) {
+			return a(b(r, initial));
 		}
 	}
 
-	function transduce<T>(coll, xform: Transducer, init?: T): T {
-		return reduce(coll, xform(init));
+	function pipe<T>(coll, xform: Transducer, init?: T): T {
+		return reduce(coll, xform(null, init));
 	}
 
-	function arrayBind(coll, f) {
+	function arrayBind(coll, f: Reducer) {
 		
 		/*
 		var c = 0;
@@ -97,7 +69,7 @@ define(function () {
 		return coll.some(v => <any>f(v)); // TODO: Measure performance, for vs. forEach vs. some
 	}
 
-	function objBind(coll, f) {
+	function objBind(coll, f: Reducer) {
 		/*
 		var c = 0;
 		arrayBind(Object.keys(coll), k => {
@@ -152,12 +124,14 @@ define(function () {
 		return c;
 	}
 
+/*
 	function into<T>(to: T, coll: any, xform: Transducer): T {
-		return transduce(coll, compose(xform, getReducer(to)), to);
-	}
+		return pipe(coll, compose(xform, getReducer(to)), to);
+	}*/
 
 	function defaultReducer(reducer, f: Reducer) {
 		if (reducer.b) f.b = reducer.b;
+		if (reducer.d) f.d = reducer.d;
 		return f;
 	}
 
@@ -242,7 +216,7 @@ define(function () {
 		return f;
 	}*/
 
-	function process(r: Reducer): (v: any) => boolean {
+	function process(r: Reducer): Reducer {
 		var c = false;
 		return v => c || (c = r(v));
 	}
@@ -257,7 +231,7 @@ define(function () {
 
 		function set() {
 			setTimeout(() => {
-				if (sig(1)) set();
+				sig([1]) || set();
 			}, 1000);
 		}
 
@@ -270,18 +244,18 @@ define(function () {
 		var sig = signal();
 
 		setTimeout(() => {
-			sig(v);
-			sig.done();
+			sig([v], true);
 		}, ms);
 		
 		return sig;
 	}
 
-	function join(): Transducer {
+	function wait(): Transducer {
 		return (reducer: Reducer) => {
 
-			var o = 1, res: any = {};
+			var o = 1, res = signal(true);
 
+			// Create a new function with the same body
 			var r: Reducer = (input) => reducer(input);
 
 			r.b = function () {
@@ -290,45 +264,47 @@ define(function () {
 			};
 
 			r.d = function (diff) {
-				(o += diff) || console.log(reducer.b());
-			}
+				(o += diff) || res([reducer.b()], true);
+			};
 
 			return r;
 		};
 	}
 
 	function signal(persistent?: boolean): Signal {
-		var reducers = [],
-			values = [];
+		var subs = [],
+			values = [],
+			isDone = false;
 
-		var ev: any = (v) => {
-			persistent && values.push(v);
-			reducers = reducers.filter(r => !r(v) || !r.b());
-			return !!reducers.length || !!ev.then;
+		var ev: any = (vals, done?) => {
+			if(persistent) values = values.concat(vals);
+			isDone = done;
+			subs = subs.filter(s => s(vals));
+			return !subs.length || !ev.then;
 		};
 
 		ev.then = (reducer: Reducer) => {
 			reducer.d && reducer.d(1);
 
-			var receiver: Reducer = function(input) {
-				return reducer(input);
+			var sub = function(values: any[]): boolean {
+				if (values.some(reducer) || isDone) {
+					reducer.d && reducer.d(-1);
+					return false;
+				}
+				return true;
 			}
 
-			receiver.b = function() {
-				reducer.d && reducer.d(-1);
-			}
-
-			reducers.push(receiver);
-		};
-
-		ev.done = () => {
-			reducers = reducers.filter(r => {
-				return r.b();
-			}); // NOTE: Assumes .b returns a false value
+			if(sub(values)) subs.push(sub);
 		};
 
 		return ev;
 	}
+
+	function to(init) {
+		return () => getReducer(init)(null, init);
+	}
+
+	var mod = id;
 
 	var transducerFunctions = {
 		map: map,
@@ -339,11 +315,10 @@ define(function () {
 		dropWhile: dropWhile,
 		mapcat: mapcat,
 		cat: cat,
-		join: join,
+		wait: wait,
+		to: to,
 		toArray: () => arrayReducer
 	};
-
-	var mod;
 
 	if (ENABLE_FLUENT) {
 		// Methods on transducers for chaining
@@ -356,49 +331,23 @@ define(function () {
 			function fluentWrapper() {
 				var rhs = innerF.apply(null, arguments),
 					lhs = this;
-				var td = r => lhs(rhs(r));
+				var td = compose(lhs, rhs);
 				objBind(transducerFunctions, v2 => { td[v2[0]] = mod[v2[0]] });
-				td.apply = function (from) { return transduce(from, this); };
+				//td.apply = function (from) { return transduce(from, this); };
 				return td;
 			}
 
 			mod[v[0]] = fluentWrapper;
 		});
-	} else {
-		mod = transducerFunctions;
 	}
-	/* else {
-		var fluentMethods = {};
-		transducerKeys.forEach(k => {
-			var innerF = transducerFunctions[k];
-
-			function fluentWrapper() {
-				var lhs = this.td;
-				var args = Array.prototype.slice.call(arguments);
-				var rhs = r => lhs(innerF.apply(null, args)(r));
-				return { coll: this.coll, td: rhs };
-			}
-
-			fluentMethods[k] = fluentWrapper;
-		});
-
-		mod = function (coll) {
-			var obj = { coll: coll, td: id };
-			transducerKeys.forEach(k => {
-				obj[k] = fluentMethods[k]
-			});
-		};
-	}*/
 
 	objMerge({
-			transduce: transduce,
-			into: into,
+			pipe: pipe,
+			//into: into,
 			compose: compose,
 			
 			reducep: reducep,
 			reduce: reduce,
-			//bufferAll: bufferAll,
-			//counter: counter,
 
 			// Signals
 			process: process,
