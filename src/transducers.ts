@@ -1,9 +1,4 @@
 
-interface Signal {
-	(vals: any[], done?: boolean): boolean;
-	then(r: Reducer): any;
-}
-
 type IteratorResult = { value?: any; done?: boolean };
 
 interface Iterator { next(): IteratorResult; }
@@ -226,13 +221,13 @@ define(function () {
 		return defaultReducer(reducer, (input) => reducer([input, ++c]));
 	}
 
-	function everySecond(): Signal {
+	function every(interval: number): Signal {
 		var sig = signal();
 
 		function set() {
 			setTimeout(() => {
 				sig([1]) || set();
-			}, 1000);
+			}, interval);
 		}
 
 		set();
@@ -316,15 +311,15 @@ define(function () {
 		mapcat: mapcat,
 		cat: cat,
 		wait: wait,
-		to: to,
-		toArray: () => arrayReducer
+		to: to
+		//toArray: () => arrayReducer
 	};
 
 	if (ENABLE_FLUENT) {
 		// Methods on transducers for chaining
-		//var transducerKeys = Object.keys(transducerFunctions);
 
-		// Mod works like the null transreducer
+		// Mod works like the null transreducer.
+		// This is a bit dirty. See if there's a better way.
 		mod = id;
 		objBind(transducerFunctions, v => {
 			var innerF = v[1];
@@ -353,7 +348,8 @@ define(function () {
 			process: process,
 			//everySecond: everySecond,
 			delay: delay,
-			//signal: signal,
+			signal: signal,
+			every: every
 		}, mod);
 
 	return mod;

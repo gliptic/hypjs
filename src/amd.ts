@@ -2,6 +2,7 @@ interface Define {
     (def: (...d: any[]) => any);
     (deps: string[], def: (...d: any[]) => any);
     (name: string, deps: string[], def: (...d: any[]) => any);
+    amd: boolean;
     // TODO: Should we support (name, def)?
 }
 
@@ -96,7 +97,7 @@ declare var require: Require;
 
     function resolve<T>(m: Promise<T>, mobj?: T) {
         if (m.c) { // Only resolve once
-            m.c.map(cb => cb(mobj));
+            m.c.map(cb => cb(mobj)); // .map is not ideal here, but we lose at least 7 bytes switching to something else!
             m.c = null;
             m.v = mobj;
         }
@@ -120,7 +121,7 @@ declare var require: Require;
     }
 
     function getModule(name: string): Module {
-        return modules[name] || (modules[name] = { n: name, c: []});
+        return modules[name] || (modules[name] = { n: name, v: {}});
     }
 
     function requestLoad(name, mod, ctx) {
@@ -128,37 +129,32 @@ declare var require: Require;
             path = getPath(name),
             existing = modules[name];
 
-        if (name == 'exports') {
-            m = { v: {} };
-            resolve(mod, m.v);
-        } else {
-            m = getModule(name);
+        m = getModule(name);
 
-            DEBUG && console.log('Looking for ' + name + ', found ' + m)
+        DEBUG && console.log('Looking for ' + name + ', found ' + m)
 
-            if (!existing && !requested[path]) { // Not yet loaded
-                ++ctx.n;
+        if (!existing && !requested[path]) { // Not yet loaded
+            ++ctx.n;
 
-                requested[path] = true;
+            requested[path] = true;
 
-                DEBUG && console.log('Requesting ' + path);
+            DEBUG && console.log('Requesting ' + path);
 
-                if (SIMULATE_RANDOM_404 && Math.random() < 0.3) {
-                    path += '_spam';
-                }
-                
-                // type = 'text/javascript' is default
-                var node = document.createElement('script');
-                node.async = true; // TODO: We don't need this in new browsers as it's default.
-                node.src = path;
-                node.onload = () => { ctx.s = m; flushDefines(ctx); --ctx.n; checkContextDone(ctx); };
-                node.onerror = () => { ctx.n = 0/1; err(LoadError, m.n); };
+            if (SIMULATE_RANDOM_404 && Math.random() < 0.3) {
+                path += '_spam';
+            }
+            
+            // type = 'text/javascript' is default
+            var node = document.createElement('script');
+            node.async = true; // TODO: We don't need this in new browsers as it's default.
+            node.src = path;
+            node.onload = () => { ctx.s = m; flushDefines(ctx); --ctx.n; checkContextDone(ctx); };
+            node.onerror = () => { ctx.n = 0/1; err(LoadError, m.n); };
 
-                if (!SIMULATE_TIMEOUT) {
-                    head.appendChild(node);
-                } else if (Math.random() < 0.3) {
-                    setTimeout(function () { head.appendChild(node) }, (conf.waitSeconds || DefaultTimeout) * 1000 * 2);
-                }
+            if (!SIMULATE_TIMEOUT) {
+                head.appendChild(node);
+            } else if (Math.random() < 0.3) {
+                setTimeout(function () { head.appendChild(node) }, (conf.waitSeconds || DefaultTimeout) * 1000 * 2);
             }
         }
 
@@ -184,16 +180,21 @@ declare var require: Require;
 
             if (MISUSE_CHECK && !mod) throw 'Ambiguous anonymous module';
 
+            // Set exports object so that we can import it
+            modules.exports = { v: mod.v };
+
             var depPromises = deps.map(depName => requestLoad(depName, mod, ctx));
 
             then(ctx, () => {
-                resolve(mod, def.apply(null, depPromises.map(p => {
+                mod.v = def.apply(null, depPromises.map(p => {
                     if (MISUSE_CHECK && !p.v) throw 'Unresolved cyclic reference of ' + p.n;
                     return p.v;
-                })));
+                })) || mod.v;
             });
             checkContextDone(ctx); // We need to do this here in case ctx.n wasn't changed at all
         });
     }
+
+    global.define.amd = true;
 
 })(this)
