@@ -1,50 +1,48 @@
 import td = require('transducers');
 
 interface Route {
-	(path: string): any;
+	(path: string): () => any;
 	s?: Signal;
 	p?: any[];
 	m?: RegExp;
 }
 
-var queryStringMatcher = /\?([^#]*)?$/,
-	routes: Route[] = [];
+var queryStringMatcher = /\?([^#]*)?$/;
 
-function router(path: any): Signal {
+type RouteMatchResult = void | (() => void);
+
+function route(path: any, dest: Reducer): (path: string) => RouteMatchResult {
 	var paramNames = [];
-	if (typeof path == 'string') {
-		var paramR = /:([\w\d]+)/g,
-			pathMatch;
 
-		while (pathMatch = paramR.exec(path)) {
-	  		paramNames.push(pathMatch[1]);
-	    }
+	var paramR = /[:\*]([\w\d]*)/g,
+		pathMatch;
 
-	    path = new RegExp(path.replace(paramR, "([^\/]+)") + "$");
-	}
+	for (; pathMatch = paramR.exec(path); ) {
+  		paramNames.push(pathMatch[1]);
+    }
 
-	var s = td.signal();
+    path = new RegExp(path.replace(paramR, str => {
+    	return str[0] == ':' ? "([^\/]+)" : "(.+)";
+	}) + "$");
 
-	routes.push(p => {
+	return p => {
 		var parts;
 		if (parts = p.match(path)) {
 			var params = {};
 			parts.some((part, index) => {
 				params[paramNames[index]] = part;
 			});
-			s([params]);
-			return true;
-		}	
-	});
 
-	return s;
-}
-
-function matchRoute(path) {
-	routes.some(route => route(path));
+			return function () {
+				dest(params);
+			};
+		}
+	};
 }
 
 var lastLocs = [];
+
+var url = td.signal(true);
 
 function getLocation() {
 	return location.hash;
@@ -54,13 +52,23 @@ function checkLocation() {
 	var curLoc = getLocation();
 	if (!lastLocs.some(v => v == curLoc)) {
 		lastLocs = [curLoc];
-		matchRoute(curLoc);
+		url(curLoc);
 	}
 }
 
-function start() {
-	window.onhashchange = checkLocation;
-	checkLocation();
+window.onhashchange = checkLocation;
+checkLocation();
+
+function ready(f) {
+	function check() {
+		document.onreadystatechange = check;
+	    if (/plete|loaded|ractive/.test(document.readyState)) {
+	        f && f();
+	        f = null;
+	    }
+	}
+
+    check();
 }
 
 function reload() {
@@ -69,16 +77,14 @@ function reload() {
 }
 
 function go(path) {
-	lastLocs.push(path); // Make sure no event triggers
+	lastLocs.push(path); // Make sure no event triggers. We're going to trigger it manually.
 	location.hash = path;
 	checkLocation();
 }
 
-(<any>router).start = start;
-(<any>router).reload = reload;
-(<any>router).go = go;
+(<any>route).url = url;
+(<any>route).reload = reload;
+(<any>route).go = go;
+(<any>route).ready = ready;
 
-//td.every(1000).then(checkLocation);
-//setInterval(1000, checkLocation);
-
-export = router;
+export = route;

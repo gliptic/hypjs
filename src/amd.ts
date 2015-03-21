@@ -17,8 +17,11 @@ interface Promise<T> {
     v?: any;
 }
 
+
 interface Module extends Promise<any> {
     n?: string;
+    d?: number;
+    callback?: () => void;
 }
 
 interface ModuleDict {
@@ -26,10 +29,8 @@ interface ModuleDict {
     exports?: any;
 }
 
-interface RequireContext extends Promise<void> {
-    n?: number;
+interface RequireContext extends Module {
     s?: Module; // The single anonymous module for this context. This is set in onload.
-    t?: number;
 }
 
 declare var define: Define;
@@ -39,7 +40,7 @@ declare var require: Require;
     /** @const */
     var DEBUG = false;
     /** @const */
-    var MISUSE_CHECK = false;
+    var MISUSE_CHECK = DEBUG || false;
     /** @const */
     var SIMULATE_TIMEOUT = false;
     /** @const */
@@ -59,69 +60,60 @@ declare var require: Require;
         // There may be defines that haven't been processed here because they were
         // made outside a 'require' context. Those will automatically tag along into
         // this new context.
-        var ctx: RequireContext = {
-            c: [],
-            n: 0,
-            s: {},
-            t: setTimeout(() => {
-                if (ctx.c) { // If we haven't resolved the context yet...
+        var rootModule: RequireContext = { d: 1, c: [] };
+        rootModule.s = rootModule;
+
+        setTimeout(() => {
+                if (rootModule.c) { // If we haven't resolved the context yet...
                     // Time-out
-                    ctx.n = 0/1; // Make sure the context is never resolved
+                    rootModule.d = 0/1; // Make sure the context is never resolved
                     err(TimeOut);
                 }
-            }, (conf.waitSeconds || DefaultTimeout)*1000) };
+            }, (opt.waitSeconds || DefaultTimeout)*1000);
 
-        flushDefines(ctx);
+        flushDefines(rootModule);
     }
 
-    function errstr(e) {
-        return ["Timeout loading module", "Error loading module"][e];
+    function errstr(e, name) {
+        return ["Timeout loading module", "Error loading module: "][e] + (name || '');
     }
 
-    global.require.config = function (c) {
-        conf = c;
-        err = c.error || (e => { throw errstr(e); });
+    global.require.config = function (o) {
+        opt = o;
+        err = o.error || ((e, name) => { throw errstr(e, name); });
     }
 
     var head = document.getElementsByTagName('head')[0],
         modules: ModuleDict = { require: { v: global.require } },
         defPromise: Promise<RequireContext> = { c: [] },
         requested = {},
-        conf,
+        opt,
         err;
 
     function then<T>(m: Promise<T>, f: (m: T, ctx?: any) => void) {
-        // We use unshift so that we can use a promise for post-order traversal too
-        !m.c ? f(m.v) : m.c.unshift(f);
+        !m.c ? f(m.v) : m.c.push(f);
     }
 
     function resolve<T>(m: Promise<T>, mobj?: T) {
         if (m.c) { // Only resolve once
+            if (mobj) m.v = mobj;
             m.c.map(cb => cb(mobj)); // .map is not ideal here, but we lose at least 7 bytes switching to something else!
             m.c = null;
-            m.v = mobj;
         }
     }
 
-    function checkContextDone(ctx: RequireContext) {
-        if (!ctx.n) {
-            DEBUG && console.log('Resolving context');
-            resolve(ctx);
-        }
-    }
-
-    function flushDefines(ctx?: RequireContext) {
+    function flushDefines(ctx) {
         DEBUG && console.log('Flusing defines');
         resolve(defPromise, ctx);
         defPromise = { c: [] };
     }
 
     function getPath(name: string): string {
-        return (conf.baseUrl || '') + (conf.paths[name] || name) + '.js';
+        return (opt.baseUrl || '') + (opt.paths[name] || name) + '.js';
     }
 
     function getModule(name: string): Module {
-        return modules[name] || (modules[name] = { n: name, v: {}});
+        return modules[name] || (modules[name] = { n: name, v: {}, d: 1, c: [] });
     }
 
     function requestLoad(name, mod, ctx) {
@@ -134,8 +126,7 @@ declare var require: Require;
         DEBUG && console.log('Looking for ' + name + ', found ' + m)
 
         if (!existing && !requested[path]) { // Not yet loaded
-            ++ctx.n;
-
+            
             requested[path] = true;
 
             DEBUG && console.log('Requesting ' + path);
@@ -148,13 +139,13 @@ declare var require: Require;
             var node = document.createElement('script');
             node.async = true; // TODO: We don't need this in new browsers as it's default.
             node.src = path;
-            node.onload = () => { ctx.s = m; flushDefines(ctx); --ctx.n; checkContextDone(ctx); };
-            node.onerror = () => { ctx.n = 0/1; err(LoadError, m.n); };
+            node.onload = () => { ctx.s = m; flushDefines(ctx); };
+            node.onerror = () => { ctx.d = 0/1; err(LoadError, m.n); };
 
             if (!SIMULATE_TIMEOUT) {
                 head.appendChild(node);
             } else if (Math.random() < 0.3) {
-                setTimeout(function () { head.appendChild(node) }, (conf.waitSeconds || DefaultTimeout) * 1000 * 2);
+                setTimeout(function () { head.appendChild(node) }, (opt.waitSeconds || DefaultTimeout) * 1000 * 2);
             }
         }
 
@@ -168,6 +159,7 @@ declare var require: Require;
         } else {
             def = deps;
             deps = name;
+            name = null;
             if (!def) {
                 def = deps;
                 deps = [];
@@ -176,6 +168,7 @@ declare var require: Require;
 
         DEBUG && console.log('Schedule define called ' + name);
         then(defPromise, ctx => {
+            var depPromises;
             if (!mod) { mod = ctx.s; ctx.s = null; }
 
             if (MISUSE_CHECK && !mod) throw 'Ambiguous anonymous module';
@@ -183,15 +176,22 @@ declare var require: Require;
             // Set exports object so that we can import it
             modules.exports = { v: mod.v };
 
-            var depPromises = deps.map(depName => requestLoad(depName, mod, ctx));
+            function dec() {
+                if (!--mod.d) {
+                    resolve(mod, def.apply(null, depPromises.map(p => {
+                        return p.v;
+                    })));    
+                }
+            }
 
-            then(ctx, () => {
-                mod.v = def.apply(null, depPromises.map(p => {
-                    if (MISUSE_CHECK && !p.v) throw 'Unresolved cyclic reference of ' + p.n;
-                    return p.v;
-                })) || mod.v;
+            depPromises = deps.map(depName => {
+                ++mod.d;
+                var dep = requestLoad(depName, mod, ctx);
+                then(dep, dec);
+                return dep;
             });
-            checkContextDone(ctx); // We need to do this here in case ctx.n wasn't changed at all
+
+            dec();
         });
     }
 
