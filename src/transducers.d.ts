@@ -1,7 +1,7 @@
 interface Reducer {
 	(input: any): any; // step
 	b?: () => any; // result
-	d?: (diff) => void;
+	d?: (cancel?) => (val, done?) => any;
 }
 
 interface Transducer {
@@ -20,7 +20,7 @@ interface Transducer {
 }
 
 interface Signal {
-	(vals: any, done?: boolean): boolean;
+	(vals?: any, done?: boolean): boolean;
 	then(r: Reducer): any;
 }
 

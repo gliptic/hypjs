@@ -7,8 +7,6 @@ interface Route {
 	m?: RegExp;
 }
 
-var queryStringMatcher = /\?([^#]*)?$/;
-
 type RouteMatchResult = void | (() => void);
 
 function route(path: any, dest: Reducer): (path: string) => RouteMatchResult {
@@ -21,7 +19,7 @@ function route(path: any, dest: Reducer): (path: string) => RouteMatchResult {
   		paramNames.push(pathMatch[1]);
     }
 
-    path = new RegExp(path.replace(paramR, str => {
+    path = RegExp(path.replace(paramR, str => {
     	return str[0] == ':' ? "([^\/]+)" : "(.+)";
 	}) + "$");
 

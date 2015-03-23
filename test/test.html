@@ -40,8 +40,8 @@
 					console.log(r);
 
 					var s = td.reduce([1000, 300, 400, 2000],
-								td.mapcat(t => td.delay(t, t))
-									.wait()
+								td.mapcat(t => td.delay(t, t)).wait()
+									//.to(v => { console.log(v) }));
 									.to([]));
 
 					s.then(arr => console.log(arr));

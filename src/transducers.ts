@@ -98,7 +98,6 @@ define(function () {
 
 	function defaultReducer(reducer, f: Reducer) {
 		if (reducer.b) f.b = reducer.b;
-		if (reducer.d) f.d = reducer.d;
 		return f;
 	}
 
@@ -227,21 +226,46 @@ define(function () {
 		return sig;
 	}
 
+	// TODO: How do we prevent misuse of these on non-leasing reducers?
 	function wait(): Transducer {
 		return (reducer: Reducer) => {
 
 			var o = 1, res = signal(true);
 
-			// Create a new function with the same body
-			var r: Reducer = defaultReducer({
+			var r: any = {
 				b: function () {
-					r.d(-1);
+					--o || res(reducer.b(), true);
 					return res;
 				},
-				d: function (diff) {
-					// This assumes .b exists, becuse wait() is a bit pointless otherwise.
-					(o += diff) || res(reducer.b(), true); 
-				}}, (input) => reducer(input));
+				d: function () {
+					++o;
+					var l = function (val, done?) {
+						if ((!isUndef(val) && reducer(val)) || done) {
+							--o || res(reducer.b(), true);
+							return true;
+						}
+						return;
+					}
+					return l;
+				}};
+
+			return r;
+		};
+	}
+
+	function latest(): Transducer {
+		return (reducer: Reducer) => {
+
+			var cur = 0;
+
+			var r: any = {
+				b: function () {},
+				d: function () {
+					var me = ++cur;
+					return function (val, done?) {
+						return me !== cur || (!isUndef(val) && reducer(val)) || done;
+					}
+				}};
 
 			return r;
 		};
@@ -262,31 +286,48 @@ define(function () {
 			}
 			if(persistent) lastValue = val;
 			isDone = done;
-			subs = subs.filter(s => s(val));
+			subs = subs.filter(s => !s(val, isDone));
 			if (CHECK_CYCLES) { isProcessing = false }
 			return !subs.length || !sig.then;
 		};
 
 		sig.then = (reducer: Reducer) => {
-			reducer.d && reducer.d(1);
+			var lease = reducer.d ?
+				reducer.d() :
+				function (val, done) { return (!isUndef(val) && reducer(val)) || done; };
 
-			var sub = function(val: any): boolean {
-				if ((!isUndef(val) && reducer(val)) || isDone) {
-					reducer.d && reducer.d(-1);
-					return;
-				}
-				return true;
-			}
-
-			if(sub(lastValue)) subs.push(sub);
+			if(!lease(lastValue, isDone)) subs.push(lease);
 			return;
 		};
 
 		return sig;
 	}
 
+	function run(ev: Reducer) {
+		return filter(v => !ev(v));
+	}
+	/*
+		return reducer => {
+			return defaultReducer(reducer, function (input) {
+				return ev(input) || reducer(input);
+			});
+		};
+	}*/
+
 	function to(dest?: Object | any[] | Reducer): Reducer {
 		return this(getReducer(dest));
+	}
+
+	function onerr(ev: Reducer): Transducer {
+		return reducer => {
+			return defaultReducer(reducer, function (input) {
+				if (input instanceof Error) {
+					return ev(input)
+				} else {
+					return reducer(input);
+				}
+			});
+		};
 	}
 
 	var mod = id;
@@ -301,7 +342,9 @@ define(function () {
 		mapcat: mapcat,
 		cat: cat,
 		wait: wait,
+		latest: latest,
 		match: match,
+		onerr: onerr,
 		//fold: fold,
 		//to: to
 	};
@@ -338,7 +381,7 @@ define(function () {
 			//everySecond: everySecond,
 			delay: delay,
 			signal: signal,
-			every: every
+			//every: every
 		}, mod);
 
 	return mod;
