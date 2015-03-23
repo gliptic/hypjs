@@ -1,7 +1,7 @@
 /** @const */
 var CLASSES = true;
 
-function compose(a: Transducer, b: Transducer) {
+function compose(a, b) {
 	return function(r: any) {
 		return a(b(r));
 	}
@@ -89,7 +89,7 @@ function getReducer(v) {
 		return v;
 }
 
-function to(xf, dest?: Object | any[] | Reducer): Reducer {
+function to(xf, dest?) {
 	return xf(getReducer(dest));
 }
 
@@ -130,30 +130,30 @@ var objReducer2 = s => {
 		v => objMerge2(v, s));
 };
 
-function internalReduce2(coll, reducer: Reducer) {
+function internalReduce2(coll, reducer) {
 	var c = false;
 	c = coll.some(reducer);
 	return c;
 }
 
-function defaultReducer(reducer, f: Reducer) {
+function defaultReducer(reducer, f) {
 	if (reducer.b) f.b = reducer.b;
 	return f;
 }
 
-function map2(f: (v: any) => any): Transducer {
+function map2(f: (v: any) => any) {
 	return reducer => {
 		return defaultReducer(reducer, (input) => { return reducer(f(input)); });
 	};
 }
 
-function filter2(f: (v: any) => boolean): Transducer {
+function filter2(f: (v: any) => boolean) {
 	return reducer => {
 		return defaultReducer(reducer, (input) => { return f(input) && reducer(input); });
 	};
 }
 
-function take2(n: number): Transducer {
+function take2(n: number) {
 	return reducer => {
 		var l = n;
 		return defaultReducer(reducer, (input) => {
@@ -162,7 +162,7 @@ function take2(n: number): Transducer {
 	};
 }
 
-function drop2(n: number): Transducer {
+function drop2(n: number) {
 	return reducer => {
 		var l = n;
 		return defaultReducer(reducer, (input) => {
@@ -171,7 +171,7 @@ function drop2(n: number): Transducer {
 	};
 }
 
-function takeWhile2(f: (v: any) => boolean): Transducer {
+function takeWhile2(f: (v: any) => boolean) {
 	return reducer => {
 		return defaultReducer(reducer, (input) => {
 			return !f(input) || reducer(input);
@@ -179,7 +179,7 @@ function takeWhile2(f: (v: any) => boolean): Transducer {
 	};
 }
 
-function dropWhile2(f: (v: any) => boolean): Transducer {
+function dropWhile2(f: (v: any) => boolean) {
 	return reducer => {
 		var f2: any = f;
 		return defaultReducer(reducer, (input) => {
@@ -197,7 +197,7 @@ function getReducer2(v) {
 		return v; // Default to array
 }
 
-function to2(xf, dest?: Object | any[] | Reducer): Reducer {
+function to2(xf, dest?) {
 	return xf(getReducer2(dest));
 }
 

@@ -11,8 +11,11 @@ define(function () {
 	var DEBUG = false;
 	/** @const */
 	var CHECK_CYCLES = DEBUG || false;
+	/** @const */
+	var DEBUG_SIGNALS = DEBUG || false;
+	/** @const */
+	var SIMULATE_RANDOM_ERRORS_IN_SIGNAL = false;
 	
-
 	function id(v) {
 		return v;
 	}
@@ -20,17 +23,13 @@ define(function () {
 	function nop() {
 	}
 
-	function isUndef(x): boolean {
-		return x === void 0;
-	}
-
-	var arrayReducer: Transducer = s => {
+	var arrayReducer: Transducer<any, any[]> = (s: any) => {
 		s = s || [];
 		return defaultReducer({ b: () => s },
 			v => { s.push(v); })
 	};
 
-	var objReducer: Transducer = s => {
+	var objReducer: Transducer<any, any> = (s: any) => {
 		s = s || {};
 		return defaultReducer({ b: () => s },
 			v => objMerge(v, s));
@@ -39,17 +38,17 @@ define(function () {
 	var protocolIterator = Symbol ? Symbol.iterator : '@@iterator';
 
 	function iterator(coll): Iterator {
-		var iter = coll[protocolIterator];
-		if (iter) return iter.call(coll);
+		if (coll[protocolIterator])
+			return coll[protocolIterator].call(coll);
 	}
 
-	function compose(a: Transducer, b: Transducer) {
+	function compose<A, B, C>(a: Transducer<A, B>, b: Transducer<B, C>): Transducer<A, C> {
 		return function(r: any) {
 			return a(b(r));
 		}
 	}
 
-	function objBind(coll, f: Reducer) {
+	function objBind(coll, f: Reducer<any>) {
 		return Object.keys(coll).some(k => <any>f([k, coll[k]]));
 	}
 
@@ -70,17 +69,17 @@ define(function () {
 			return v; // Default to array
 	}
 
-	function reduce(coll, reducer: Reducer): any {
+	function reduce(coll, reducer: Reducer<any>): any {
 		internalReduce(coll, reducer);
 		return reducer.b && reducer.b();
 	}
 
-	function internalReduce(coll, reducer: Reducer) {
+	function internalReduce(coll, reducer: Reducer<any>) {
 		var c = false;
 		if (Array.isArray(coll)) {
 			c = coll.some(reducer);
 		} else if (coll.then) {
-			c = coll.then(reducer);
+			coll.then(reducer);
 		} else {
 			var iter = iterator(coll), val;
 			if (!iter) {
@@ -96,78 +95,79 @@ define(function () {
 		return c;
 	}
 
-	function defaultReducer(reducer, f: Reducer) {
+	function defaultReducer<T>(reducer, f: Reducer<T>): Reducer<T> {
 		if (reducer.b) f.b = reducer.b;
+		if (reducer.d) f.d = reducer.d;
 		return f;
 	}
 
-	function reducep(f: Reducer) {
+	function reducep<T>(f: Reducer<T>): Transducer<any, T> {
 		return reducer => {
-			return defaultReducer(reducer, (input) => {
+			return defaultReducer(reducer, (input: T) => {
 				f(input);
 				return reducer(f.b());
 			});
 		};
 	}
 
-	function map(f: (v: any) => any): Transducer {
+	function map<I, O>(f: (v: I) => O): Transducer<I, O> {
 		return reducer => {
-			return defaultReducer(reducer, (input) => { return reducer(f(input)); });
+			return defaultReducer(reducer, (input: I) => { return reducer(f(input)); });
 		};
 	}
 
-	function filter(f: (v: any) => boolean): Transducer {
+	function filter<T>(f: (T: any) => boolean): Transducer<T, T> {
 		return reducer => {
-			return defaultReducer(reducer, (input) => { return f(input) && reducer(input); });
+			return defaultReducer(reducer, (input: T) => { return f(input) && reducer(input); });
 		};
 	}
 
-	function take(n: number): Transducer {
+	function take<T>(n: number): Transducer<T, T> {
 		return reducer => {
 			var l = n;
-			return defaultReducer(reducer, (input) => {
+			return defaultReducer(reducer, (input: T) => {
 				return --l < 0 || reducer(input) || !l;
 			});
 		};
 	}
 
-	function drop(n: number): Transducer {
+	function drop<T>(n: number): Transducer<T, T> {
 		return reducer => {
 			var l = n;
-			return defaultReducer(reducer, (input) => {
+			return defaultReducer(reducer, (input: T) => {
 				return --l < 0 && reducer(input);
 			});
 		};
 	}
 
-	function takeWhile(f: (v: any) => boolean): Transducer {
+	function takeWhile<T>(f: (v: T) => boolean): Transducer<T, T> {
 		return reducer => {
-			return defaultReducer(reducer, (input) => {
+			return defaultReducer(reducer, (input: T) => {
 				return !f(input) || reducer(input);
 			});
 		};
 	}
 
-	function dropWhile(f: (v: any) => boolean): Transducer {
+	function dropWhile<T>(f: (v: T) => boolean): Transducer<T, T> {
 		return reducer => {
 			var f2: any = f;
-			return defaultReducer(reducer, (input) => {
+			return defaultReducer(reducer, (input: T) => {
 				return !f2 || !f2(input) && (f2 = 0, reducer(input));
 			});
 		};
 	}
 
-	function fold(f: (x, y) => any): Transducer {
-		return s => {
-			var r: Reducer = input => s = f(s, input);
+	function fold<T>(f: (x: T, y: T) => T): Transducer<T, T> {
+		return (s: any) => {
+			var r: Reducer<T> = (input: T) => s = f(s, input);
 			r.b = () => s;
 			return r;
 		};
 	}
 
 	// Concatenate a sequence of reducible objects into one sequence
-	function cat(): Transducer {
-		return (reducer: Reducer) => {
+	function cat(): Transducer<any, any> {
+		return (reducer: Reducer<any>) => {
 			return defaultReducer(reducer, (input) => {
 				return internalReduce(input, reducer);
 			});
@@ -175,76 +175,88 @@ define(function () {
 	}
 
 	// Also called flatMap, >>=, bind and others.
-	function mapcat(f): Transducer {
+	function mapcat<I>(f: (v: I) => any): Transducer<I, any> {
 		return compose(map(f), cat());
 	}
 
-	function match(coll): Transducer {
+	function match<I, O>(coll: ((v: I) => O)[]): Transducer<I, O> {
 		return reducer => {
-			return defaultReducer(reducer, (input) => {
-				for (var i = 0; i < coll.length; ++i) {
-					var v = coll[i](input);
-					if (!isUndef(v)) {
-						return reducer(v);
-					}
-				}
+			return defaultReducer(reducer, (input: I) => {
+				var c;
+				coll.some(x => {
+					var v = x(input);
+					return (v != void 0) && (c = reducer(v), true);
+				});
+				return c;
 			});
 		};
 	}
 
-	function process(r: Reducer): Reducer {
+	function process<T>(r: Reducer<T>): Reducer<T> {
 		var c = false;
 		return v => c || (c = r(v));
 	}
 
+/*
 	function counter(reducer: Reducer): Reducer {
 		var c = 0;
 		return defaultReducer(reducer, (input) => reducer([input, ++c]));
 	}
+*/
 
-	function every(interval: number): Signal {
-		var sig = signal();
+	function every(interval: number): Signal<number> {
+		var s = sig();
 
 		function set() {
 			setTimeout(() => {
-				sig(1) || set();
+				s(1) || set();
 			}, interval);
 		}
 
 		set();
 
-		return sig;
+		return s;
 	}
 
-	function delay(ms: number, v?: any): Signal {
-		var sig = signal();
+	function delay<T>(ms: number, v?: T | Error): Signal<T | Error> {
+		var s = sig();
 
 		setTimeout(() => {
-			sig(v, true);
+			if (SIMULATE_RANDOM_ERRORS_IN_SIGNAL && Math.random() < 0.3) v = new Error("Error in delay");
+			s(v, true);
 		}, ms);
 		
-		return sig;
+		return s;
 	}
 
 	// TODO: How do we prevent misuse of these on non-leasing reducers?
-	function wait(): Transducer {
-		return (reducer: Reducer) => {
+	function wait<T>(): Transducer<T, T> {
+		return (reducer: Reducer<T>) => {
 
-			var o = 1, res = signal(true);
+			var o = 1, res = sig(true);
 
 			var r: any = {
 				b: function () {
 					--o || res(reducer.b(), true);
+					DEBUG_SIGNALS && console.log('lease drop', o);
 					return res;
 				},
 				d: function () {
 					++o;
-					var l = function (val, done?) {
-						if ((!isUndef(val) && reducer(val)) || done) {
-							--o || res(reducer.b(), true);
-							return true;
-						}
-						return;
+					DEBUG_SIGNALS && console.log('lease acquired', o);
+					
+					var sublease: Reducer<T> = reducer.d ?
+						reducer.d() :
+						(input) => reducer(input);
+
+					var l: Reducer<T> = function (val: T) {
+						return sublease(val);
+					}
+					l.b = function () {
+						--o || res(reducer.b(), true);
+						sublease.b && sublease.b();
+						DEBUG_SIGNALS && console.log('lease drop', o);
+						return res;
 					}
 					return l;
 				}};
@@ -253,80 +265,133 @@ define(function () {
 		};
 	}
 
-	function latest(): Transducer {
-		return (reducer: Reducer) => {
-
-			var cur = 0;
+	function latest<T>(): Transducer<T, T> {
+		return (reducer: Reducer<T>) => {
+			var cur;
 
 			var r: any = {
-				b: function () {},
+				b: reducer.b,
 				d: function () {
-					var me = ++cur;
-					return function (val, done?) {
-						return me !== cur || (!isUndef(val) && reducer(val)) || done;
-					}
+					var l: Reducer<T>;
+
+					var sublease: Reducer<T> = reducer.d ?
+						reducer.d() :
+						(input) => reducer(input);
+
+					l = (val: T) => l !== cur || sublease(val);
+					l.b = sublease.b;
+					// TODO: Cancel cur
+					cur = l;
+					return l;
 				}};
 
 			return r;
 		};
 	}
 
-	function signal(persistent?: boolean): Signal {
+	function sig<T>(persistent?: boolean): Signal<T> {
 		var subs = [],
 			lastValue,
 			isDone = false,
 			isProcessing = false;
 
-		var sig: any = (val, done?) => {
+		function processOne(val, lease): any {
+			return ((val == void 0 || !lease(val)) && !isDone) || (lease.b && lease.b(), false);
+		}
+
+		var s: any = (val, done?) => {
+			DEBUG_SIGNALS && console.log('signalled', val, 'leases:', subs.length);
 			if (CHECK_CYCLES) {
 				if (isProcessing) {
 					throw 'Cyclic';
 				}
 				isProcessing = true;
 			}
-			if(persistent) lastValue = val;
+			if (val != void 0) lastValue = val;
 			isDone = done;
-			subs = subs.filter(s => !s(val, isDone));
+			subs = subs.filter(lease => processOne(val, lease));
 			if (CHECK_CYCLES) { isProcessing = false }
-			return !subs.length || !sig.then;
+			return !subs.length || !s.then;
 		};
 
-		sig.then = (reducer: Reducer) => {
-			var lease = reducer.d ?
+		s.then = (reducer: Reducer<T>) => {
+			var lease: Reducer<T> = reducer.d ?
 				reducer.d() :
-				function (val, done) { return (!isUndef(val) && reducer(val)) || done; };
+				(input) => reducer(input); // New function so that we don't call .b() on lease drop
 
-			if(!lease(lastValue, isDone)) subs.push(lease);
-			return;
+			if (processOne(lastValue, lease))
+				subs.push(lease);
+			
+			return lastValue != void 0;
 		};
 
-		return sig;
+		s.t = sig; // Mark as signal
+
+		return s;
 	}
 
-	function run(ev: Reducer) {
-		return filter(v => !ev(v));
-	}
-	/*
+	function done<T>(ev: Reducer<T>): Transducer<T, T> {
 		return reducer => {
-			return defaultReducer(reducer, function (input) {
+			var r = defaultReducer(reducer, (input: any) => reducer(input));
+			r.b = function () {
+				var v = reducer.b();
+				ev(v);
+				ev.b && ev.b();
+				return v;
+			};
+			return r;
+		}
+	}
+
+/*
+	function pre(ev: Reducer): Transducer {
+		return reducer => {
+			var r = defaultReducer(reducer, function (input) {
 				return ev(input) || reducer(input);
 			});
+			r.b = function () {
+				ev.b && ev.b();
+				return reducer.b && reducer.b();
+			};
+			// TODO: Leases?
+			return r;
 		};
-	}*/
+	}
 
-	function to(dest?: Object | any[] | Reducer): Reducer {
+	function post(ev: Reducer): Transducer {
+		return reducer => {
+			var r = defaultReducer(reducer, function (input) {
+				return reducer(input) || ev(input);
+			});
+			r.b = function () {
+				ev.b && ev.b();
+				return reducer.b && reducer.b();
+			};
+			// TODO: Leases?
+			return r;
+		};
+	}
+*/
+
+	function to(dest?: Object | any[] | Reducer<any>): Reducer<any> {
 		return this(getReducer(dest));
 	}
 
-	function onerr(ev: Reducer): Transducer {
+	function err<T>(ev: Reducer<T>): Transducer<T, T> {
 		return reducer => {
-			return defaultReducer(reducer, function (input) {
+			var r = defaultReducer(reducer, function (input: T) {
 				if (input instanceof Error) {
-					return ev(input)
+					return ev(input);
 				} else {
 					return reducer(input);
 				}
 			});
+			r.b = function () {
+				ev.b && ev.b();
+				return reducer.b && reducer.b();
+			};
+			// TODO: Leases?
+			return r;
 		};
 	}
 
@@ -344,7 +409,10 @@ define(function () {
 		wait: wait,
 		latest: latest,
 		match: match,
-		onerr: onerr,
+		err: err,
+		done: done,
+		//pre: pre,
+		//post: post,
 		//fold: fold,
 		//to: to
 	};
@@ -359,7 +427,7 @@ define(function () {
 		function fluentWrapper() {
 			var rhs = innerF.apply(null, arguments),
 				lhs = this;
-			var td: Transducer = compose(lhs, rhs);
+			var td: Transducer<any, any> = compose(lhs, rhs);
 			objBind(transducerFunctions, v2 => { td[v2[0]] = mod[v2[0]] });
 			td.to = to;
 			return td;
@@ -380,7 +448,7 @@ define(function () {
 			process: process,
 			//everySecond: everySecond,
 			delay: delay,
-			signal: signal,
+			sig: sig,
 			//every: every
 		}, mod);
 

@@ -1,15 +1,8 @@
 import td = require('transducers');
 
-interface Route {
-	(path: string): () => any;
-	s?: Signal;
-	p?: any[];
-	m?: RegExp;
-}
-
 type RouteMatchResult = void | (() => void);
 
-function route(path: any, dest: Reducer): (path: string) => RouteMatchResult {
+function route(path: any, dest: Reducer<Object>): (path: string) => RouteMatchResult {
 	var paramNames = [];
 
 	var paramR = /[:\*]([\w\d]*)/g,
@@ -38,9 +31,8 @@ function route(path: any, dest: Reducer): (path: string) => RouteMatchResult {
 	};
 }
 
-var lastLocs = [];
-
-var url = td.signal(true);
+var lastLocs = [],
+	url = td.sig(true);
 
 function getLocation() {
 	return location.hash;
@@ -60,7 +52,7 @@ checkLocation();
 function ready(f) {
 	function check() {
 		document.onreadystatechange = check;
-	    if (/plete|loaded|ractive/.test(document.readyState)) {
+	    if (/plete|loade|ractive/.test(document.readyState)) {
 	        f && f();
 	        f = null;
 	    }

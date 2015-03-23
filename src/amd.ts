@@ -19,7 +19,6 @@ interface Promise<T> {
 
 
 interface Module extends Promise<any> {
-    n?: string;
     d?: number;
     callback?: () => void;
 }
@@ -27,6 +26,7 @@ interface Module extends Promise<any> {
 interface ModuleDict {
     [name: string]: Module;
     exports?: any;
+    require?: any;
 }
 
 interface RequireContext extends Module {
@@ -113,7 +113,7 @@ declare var require: Require;
     }
 
     function getModule(name: string): Module {
-        return modules[name] || (modules[name] = { n: name, v: {}, d: 1, c: [] });
+        return modules[name] || (modules[name] = { v: {}, d: 1, c: [] });
     }
 
     function requestLoad(name, mod, ctx) {
@@ -140,7 +140,7 @@ declare var require: Require;
             node.async = true; // TODO: We don't need this in new browsers as it's default.
             node.src = path;
             node.onload = () => { ctx.s = m; flushDefines(ctx); };
-            node.onerror = () => { ctx.d = 0/1; err(LoadError, m.n); };
+            node.onerror = () => { ctx.d = 0/1; err(LoadError, name); };
 
             if (!SIMULATE_TIMEOUT) {
                 head.appendChild(node);

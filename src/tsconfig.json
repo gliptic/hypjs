@@ -9,6 +9,7 @@
         "amd.ts",
         "transducers.ts",
         "transducers.d.ts",
+        "protocol.ts",
         "route.ts"
     ]
 }

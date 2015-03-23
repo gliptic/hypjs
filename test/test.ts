@@ -5,5 +5,7 @@ import third = require('transducers')
 console.log('Running test.js');
 
 export function foo() {
-	return third.map(x => x + 1);
+	return third.map((x: number) => {
+		return x + 1;
+	});
 }

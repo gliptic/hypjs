@@ -3,7 +3,7 @@
 		<script src="../build/amd.js"></script>
 		<script>
 			require.config({
-				waitSeconds: 4,
+				waitSeconds: 7,
 				baseUrl: '../build/',
 				paths: {
 					test: 'test',
@@ -40,11 +40,16 @@
 					console.log(r);
 
 					var s = td.reduce([1000, 300, 400, 2000],
-								td.mapcat(t => td.delay(t, t)).wait()
+								td.mapcat(t => td.delay(t, t))
+									.wait()
 									//.to(v => { console.log(v) }));
+									.done(arr => console.log('done:', arr))
+									//.post(v => console.log('post:', v))
+									//.pre(v => console.log('pre:', v))
+									.err(e => console.log(e))
 									.to([]));
 
-					s.then(arr => console.log(arr));
+					//s.then(arr => console.log(arr));
 				})
 			});
 		</script>
