@@ -13,7 +13,7 @@
 			});
 			define('outside', [], function () { return 'Outside'; })
 
-			require(['test', 'a', 'b', 'outside', 'transducers', 'route'], function (t, a, b, outside, td, route) {
+			require(['test', 'a', 'b', 'outside', 'transducers', 'route'], function (t, a, b, outside, _, route) {
 				route.ready(function () {
 
 					console.log('Loaded test');
@@ -22,6 +22,10 @@
 					console.log(b);
 					console.log(outside);
 
+					var process = _.filter(x => x <= 3).comp(
+									_.map(x => x + 1)
+									 .take(2))
+
 					var routes = [
 						route('#/a', () => { console.log('a!'); }),
 						route('#/b', () => { console.log('b!'); }),
@@ -29,21 +33,17 @@
 					];
 
 					route.url.then(
-						td.match(routes)
+						_.match(routes)
 							.to(routeAction => routeAction()));
 
-					var process = td.filter(x => x <= 3)
-							.map(x => x + 1)
-							.take(2);
-
-					var r = td.reduce([1, 2, 3, 4, 5, 6], process.to([]));
+					var r = _.reduce([1, 2, 3, 4, 5, 6], process.to([]));
 					console.log(r);
 
 					//_.mapcat(t => _.delay(t, t))
 
 
-					var s = td.reduce([1000, 300, 400, 2000],
-								td.mapcat(t => td.delay(t, t), td.compose(td.latest, td.wait))
+					var s = _.reduce([1000, 300, 400, 2000],
+								_.mapcat(t => _.delay(t, t), _.latest().wait())
 									//.to(v => { console.log(v) }));
 									.done(arr => console.log('done:', arr))
 									//.post(v => console.log('post:', v))

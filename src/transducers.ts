@@ -164,19 +164,19 @@ define(function () {
 		};
 	}
 
-	// These are functions
+	// These are functions from transducers to transducers
 	function wait<I, O>(next: Transducer<I, O>): Transducer<I, O> {
 		var o = 1, res = sig(true);
+
+		// TODO: Combine errors passed through .b() and send
 
 		return inherit({
 			b: function () { --o || res(next.b && next.b(), true); return res; }
 		}, (reducer: Reducer<O>) => {
-			var wrapped = next(reducer);
-
 			++o;
 			return inherit({
-				b: function () { --o || res(next.b && next.b(), true); }
-			}, wrapped);
+				b: function () { --o || res(next.b && next.b(), true); return res; }
+			}, next(reducer));
 		});
 	}
 
@@ -186,7 +186,7 @@ define(function () {
 			var wrapped = next(reducer);
 			var me = ++cur;
 			return inherit(wrapped, (input: I) => {
-				return !(cur == me) || wrapped(input);
+				return cur != me || wrapped(input);
 			});
 		});
 	}
@@ -199,7 +199,7 @@ define(function () {
 
 	// Concatenate a sequence of reducible objects into one sequence
 	function cat(join?: any): Transducer<any, any> {
-		join = join || id;
+		join = join.c || id;
 		return (reducer: Reducer<any>) => {
 			var tempJoin = join(defaultJoin(reducer));
 			return inherit(tempJoin, (input) => {
@@ -307,59 +307,6 @@ define(function () {
 		}
 	}
 
-/*
-	function pre(ev: Reducer): Transducer {
-		return reducer => {
-			var r = inherit(reducer, function (input) {
-				return ev(input) || reducer(input);
-			});
-			r.b = function () {
-				ev.b && ev.b();
-				return reducer.b && reducer.b();
-			};
-			// TODO: Leases?
-			return r;
-		};
-	}
-
-	function post(ev: Reducer): Transducer {
-		return reducer => {
-			var r = inherit(reducer, function (input) {
-				return reducer(input) || ev(input);
-			});
-			r.b = function () {
-				ev.b && ev.b();
-				return reducer.b && reducer.b();
-			};
-			// TODO: Leases?
-			return r;
-		};
-	}
-*/
-
-	function to(dest?: Object | any[] | Reducer<any>): Reducer<any> {
-		return this(getReducer(dest));
-	}
-
-/*
-	function err<T>(ev: Reducer<T>): Transducer<T, T> {
-		return reducer => {
-			var r = inherit(reducer, function (input: T) {
-				if (input instanceof Error) {
-					return ev(input);
-				} else {
-					return reducer(input);
-				}
-			});
-			r.b = function () {
-				ev.b && ev.b();
-				return reducer.b && reducer.b();
-			};
-			// TODO: Leases?
-			return r;
-		};
-	}*/
-
 	function err<T>(ev: Reducer<T>): Transducer<T, T> {
 		return reducer => {
 			var r = inherit(reducer, (input: any) => reducer(input));
@@ -367,14 +314,11 @@ define(function () {
 				err && ev(err);
 				return reducer.b && reducer.b();
 			};
-			// TODO: Leases?
 			return r;
 		};
 	}
 
-	var mod = id;
-
-	var transducerFunctions = {
+	var tdProto: any = {
 		map: map,
 		filter: filter,
 		take: take,
@@ -386,48 +330,49 @@ define(function () {
 		match: match,
 		err: err,
 		done: done,
-		//pre: pre,
-		//post: post,
-		//fold: fold,
-		//to: to
+		comp: td => td.c
+	}
+
+	var joinProto: any = {
+		wait: () => wait,
+		latest: () => latest,
+		comp: td => td.c
+	}
+
+	var mod = {
+		reducep: reducep,
+		reduce: reduce,
+
+		// Signals
+		process: process,
+		//everySecond: everySecond,
+		delay: delay,
+		sig: sig,
 	};
 
-	// Methods on transducers for chaining
-
-	// Mod works like the null transducer.
-	// This is a bit dirty. See if there's a better way.
-	mod = id;
-	objBind(transducerFunctions, v => {
+	objBind(tdProto, v => {
 		var innerF = v[1];
-		function fluentWrapper() {
-			var rhs = innerF.apply(null, arguments),
-				lhs = this;
-			var td: Transducer<any, any> = compose(lhs, rhs);
-			objBind(transducerFunctions, v2 => { td[v2[0]] = mod[v2[0]] });
-			td.to = to;
-			return td;
-		}
-
-		mod[v[0]] = fluentWrapper;
+		mod[v[0]] = tdProto[v[0]] = function () {
+			var t = innerF.apply(0, arguments);
+			var c = this.c;
+			var x = Object.create(tdProto);
+			x.c = c ? r => c(t(r)) : t;
+			return x;
+		};
 	});
 
-	objMerge({
-			//pipe: pipe,
-			//into: into,
-			compose: compose,
-			
-			reducep: reducep,
-			reduce: reduce,
-			wait: wait,
-			latest: latest,
+	objBind(joinProto, v => {
+		var innerF = v[1];
+		mod[v[0]] = joinProto[v[0]] = function () {
+			var t = innerF.apply(0, arguments);
+			var c = this.c;
+			var x = Object.create(joinProto);
+			x.c = c ? r => c(t(r)) : t;
+			return x;
+		};
+	});
 
-			// Signals
-			process: process,
-			//everySecond: everySecond,
-			delay: delay,
-			sig: sig,
-			//every: every
-		}, mod);
+	tdProto.to = function (dest) { return this.c(getReducer(dest)); }
 
 	return mod;
 })
