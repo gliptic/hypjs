@@ -25,13 +25,13 @@ define(function () {
 
 	var arrayReducer: Transducer<any, any[]> = (s: any) => {
 		s = s || [];
-		return defaultReducer({ b: () => s },
+		return inherit({ b: () => s },
 			v => { s.push(v); })
 	};
 
 	var objReducer: Transducer<any, any> = (s: any) => {
 		s = s || {};
-		return defaultReducer({ b: () => s },
+		return inherit({ b: () => s },
 			v => objMerge(v, s));
 	};
 
@@ -95,15 +95,14 @@ define(function () {
 		return c;
 	}
 
-	function defaultReducer<T>(reducer, f: Reducer<T>): Reducer<T> {
+	function inherit(reducer, f): any {
 		if (reducer.b) f.b = reducer.b;
-		//if (reducer.d) f.d = reducer.d;
 		return f;
 	}
 
 	function reducep<T>(f: Reducer<T>): Transducer<any, T> {
 		return reducer => {
-			return defaultReducer(reducer, (input: T) => {
+			return inherit(reducer, (input: T) => {
 				f(input);
 				return reducer(f.b());
 			});
@@ -112,20 +111,20 @@ define(function () {
 
 	function map<I, O>(f: (v: I) => O): Transducer<I, O> {
 		return reducer => {
-			return defaultReducer(reducer, (input: I) => { return reducer(f(input)); });
+			return inherit(reducer, (input: I) => { return reducer(f(input)); });
 		};
 	}
 
 	function filter<T>(f: (T: any) => boolean): Transducer<T, T> {
 		return reducer => {
-			return defaultReducer(reducer, (input: T) => { return f(input) && reducer(input); });
+			return inherit(reducer, (input: T) => { return f(input) && reducer(input); });
 		};
 	}
 
 	function take<T>(n: number): Transducer<T, T> {
 		return reducer => {
 			var l = n;
-			return defaultReducer(reducer, (input: T) => {
+			return inherit(reducer, (input: T) => {
 				return --l < 0 || reducer(input) || !l;
 			});
 		};
@@ -134,7 +133,7 @@ define(function () {
 	function drop<T>(n: number): Transducer<T, T> {
 		return reducer => {
 			var l = n;
-			return defaultReducer(reducer, (input: T) => {
+			return inherit(reducer, (input: T) => {
 				return --l < 0 && reducer(input);
 			});
 		};
@@ -142,7 +141,7 @@ define(function () {
 
 	function takeWhile<T>(f: (v: T) => boolean): Transducer<T, T> {
 		return reducer => {
-			return defaultReducer(reducer, (input: T) => {
+			return inherit(reducer, (input: T) => {
 				return !f(input) || reducer(input);
 			});
 		};
@@ -151,7 +150,7 @@ define(function () {
 	function dropWhile<T>(f: (v: T) => boolean): Transducer<T, T> {
 		return reducer => {
 			var f2: any = f;
-			return defaultReducer(reducer, (input: T) => {
+			return inherit(reducer, (input: T) => {
 				return !f2 || !f2(input) && (f2 = 0, reducer(input));
 			});
 		};
@@ -165,51 +164,45 @@ define(function () {
 		};
 	}
 
-/*
-	function getLease<T>(r: Reducer<T>): Reducer<T> {
-		return r.d ? r.d() : input => r(input);
-	}*/
+	// These are functions
+	function wait<I, O>(next: Transducer<I, O>): Transducer<I, O> {
+		var o = 1, res = sig(true);
 
-	function wait<T>(): Transducer<T, T> {
-		return (reducer: Reducer<T>) => {
-			var o = 1, res = sig(true);
+		return inherit({
+			b: function () { --o || res(next.b && next.b(), true); return res; }
+		}, (reducer: Reducer<O>) => {
+			var wrapped = next(reducer);
 
-			return defaultReducer({
-				b: function () { --o || res(reducer.b(), true); return res; }
-			}, function () {
-				++o;
-				return defaultReducer({
-					b: function () { --o || res(reducer.b(), true); }
-				}, (input: T) => reducer(input));
+			++o;
+			return inherit({
+				b: function () { --o || res(next.b && next.b(), true); }
+			}, wrapped);
+		});
+	}
+
+	function latest<I, O>(next: Transducer<I, O>): Transducer<I, O> {
+		var cur = 0;
+		return inherit(next, (reducer: Reducer<O>) => {
+			var wrapped = next(reducer);
+			var me = ++cur;
+			return inherit(wrapped, (input: I) => {
+				return !(cur == me) || wrapped(input);
 			});
-		};
-
+		});
 	}
 
-	function latest<T>(): Transducer<T, T> {
-		return (reducer: Reducer<T>) => {
-			var cur = 0;
-			return function () {
-				var me = ++cur;
-				return defaultReducer(reducer, (input: T) => {
-					return !(cur == me) || reducer(input);
-				});
-			}
-		};
-	}
-
-	function defaultJoin(reducer) {
-		return defaultReducer(reducer, function () {
+	function defaultJoin(reducer: Reducer<any>): Transducer<any, any> {
+		return inherit(reducer, () => {
 			return (input) => reducer(input);
 		});
 	}
 
 	// Concatenate a sequence of reducible objects into one sequence
 	function cat(join?: any): Transducer<any, any> {
-		join = join || defaultJoin;
+		join = join || id;
 		return (reducer: Reducer<any>) => {
-			var tempJoin = join(reducer);
-			return defaultReducer(tempJoin, (input) => {
+			var tempJoin = join(defaultJoin(reducer));
+			return inherit(tempJoin, (input) => {
 				return internalReduce(input, tempJoin());
 			});
 		};
@@ -222,7 +215,7 @@ define(function () {
 
 	function match<I, O>(coll: ((v: I) => O)[]): Transducer<I, O> {
 		return reducer => {
-			return defaultReducer(reducer, (input: I) => {
+			return inherit(reducer, (input: I) => {
 				var c;
 				coll.some(x => {
 					var v = x(input);
@@ -262,59 +255,6 @@ define(function () {
 		
 		return s;
 	}
-
-	// TODO: How do we prevent misuse of these on non-leasing reducers?
-	/*
-	function wait<T>(): Transducer<T, T> {
-		return (reducer: Reducer<T>) => {
-
-			var o = 1, res = sig(true);
-
-			var r: any = {
-				b: function () {
-					--o || res(reducer.b(), true);
-					DEBUG_SIGNALS && console.log('lease drop', o);
-					return res;
-				},
-				d: function () {
-					++o;
-					DEBUG_SIGNALS && console.log('lease acquired', o);
-					
-					var l = getLease(reducer),
-						b = l.b;
-
-					l.b = function (endcond) {
-						--o || res(reducer.b(), true);
-						b && b(endcond);
-						DEBUG_SIGNALS && console.log('lease drop', o);
-					}
-					return l;
-				}};
-
-			return r;
-		};
-	}
-
-	function latest<T>(): Transducer<T, T> {
-		return (reducer: Reducer<T>) => {
-			var cur;
-
-			var r: any = {
-					b: reducer.b,
-					d: function (r) {
-						var sublease = getLease(r);
-
-						var l: Reducer<T> = (val: T) => l !== cur || sublease(val);
-						l.b = sublease.b;
-						// TODO: Cancel cur
-						return cur = l;
-					}
-				};
-
-			return r;
-		};
-	}
-	*/
 
 	function sig<T>(persistent?: boolean): Signal<T> {
 		var subs = [],
@@ -356,7 +296,7 @@ define(function () {
 
 	function done<T>(ev: Reducer<T>): Transducer<T, T> {
 		return reducer => {
-			var r = defaultReducer(reducer, (input: any) => reducer(input));
+			var r = inherit(reducer, (input: any) => reducer(input));
 			r.b = function () {
 				var v = reducer.b();
 				ev(v);
@@ -370,7 +310,7 @@ define(function () {
 /*
 	function pre(ev: Reducer): Transducer {
 		return reducer => {
-			var r = defaultReducer(reducer, function (input) {
+			var r = inherit(reducer, function (input) {
 				return ev(input) || reducer(input);
 			});
 			r.b = function () {
@@ -384,7 +324,7 @@ define(function () {
 
 	function post(ev: Reducer): Transducer {
 		return reducer => {
-			var r = defaultReducer(reducer, function (input) {
+			var r = inherit(reducer, function (input) {
 				return reducer(input) || ev(input);
 			});
 			r.b = function () {
@@ -404,7 +344,7 @@ define(function () {
 /*
 	function err<T>(ev: Reducer<T>): Transducer<T, T> {
 		return reducer => {
-			var r = defaultReducer(reducer, function (input: T) {
+			var r = inherit(reducer, function (input: T) {
 				if (input instanceof Error) {
 					return ev(input);
 				} else {
@@ -422,7 +362,7 @@ define(function () {
 
 	function err<T>(ev: Reducer<T>): Transducer<T, T> {
 		return reducer => {
-			var r = defaultReducer(reducer, (input: any) => reducer(input));
+			var r = inherit(reducer, (input: any) => reducer(input));
 			r.b = function (err) {
 				err && ev(err);
 				return reducer.b && reducer.b();
@@ -443,8 +383,6 @@ define(function () {
 		dropWhile: dropWhile,
 		mapcat: mapcat,
 		cat: cat,
-		wait: wait,
-		latest: latest,
 		match: match,
 		err: err,
 		done: done,
@@ -480,6 +418,8 @@ define(function () {
 			
 			reducep: reducep,
 			reduce: reduce,
+			wait: wait,
+			latest: latest,
 
 			// Signals
 			process: process,

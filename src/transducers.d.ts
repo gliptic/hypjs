@@ -6,6 +6,7 @@ interface Reducer<T> {
 
 interface Transducer<I, O> {
 	(r: Reducer<O>): Reducer<I>;
+	b?: () => any;
 	map?: <O2>(f: (v: O) => O2) => Transducer<I, O2>;
 	filter?: (f: (v: O) => boolean) => Transducer<I, O>;
 	take?: (n: number) => Transducer<I, O>;
