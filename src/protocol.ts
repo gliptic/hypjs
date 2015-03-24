@@ -1,24 +1,16 @@
 define(['transducers'], function (td) {
 
 	var queue = [],
-		queuedActions = [],
-		results = [],
+		queuedSigs = [],
 		sendTimer: number,
-		curMethod: number,
+		curMethod: number = 0,
 		protocolUrl: string;
 
 	function call(method, body): Signal<any> {
 		var sig = td.sig(true);
 		
-		var q: { b; d? } = { b: body };
-		//queue.push(q);
-
-		/*
-		1. Pipeline signals that are not yet sent with references.
-		2. If we find a signal that cannot be pipeline
-		*/
-
-		var path = [],
+		var q: { b; d? } = { b: body },
+			path = [],
 			o = 1,
 			depsMissing;
 
@@ -26,9 +18,7 @@ define(['transducers'], function (td) {
 			var i = queue.length;
 			sig.i = i;
 			queue.push(q);
-			queuedActions.push(results => {
-				sig(results[i]);
-			});
+			queuedSigs.push(sig);
 		}
 
 		function dec() {
@@ -53,8 +43,7 @@ define(['transducers'], function (td) {
 				++o;
 				if (!obj.then(v => { parent[k] = v; dec(); })) {
 					depsMissing = depsMissing || obj.i == void 0;
-					q.d = q.d || {};
-					q.d.push([ path.join('.'), obj.i ]);
+					(q.d = q.d || {}).push([ path.join('.'), obj.i ]);
 					parent[k] = void 0;
 				}
 			}
@@ -62,23 +51,23 @@ define(['transducers'], function (td) {
 
 		traverseObj(q, 0);
 
-		if (!depsMissing) {
-			schedule();
-		} else {
+		if (depsMissing) {
 			q.d = void 0;
 			dec(); // Let signals trigger scheduling
+		} else {
+			schedule();
 		}
 
 		return sig;
 	}
 
 	function flush() {
-		if (true) {
+		if (queue.length) {
 			var req = new XMLHttpRequest();
 
-			var q = queue, qa = queuedActions;
+			var q = queue, qa = queuedSigs;
 			queue = [];
-			queuedActions = [];
+			queuedSigs = [];
 
 			function x() {
 				var status = req.status,
@@ -90,6 +79,13 @@ define(['transducers'], function (td) {
 				if (req.readyState > 3) {
 					// DONE
 					x();
+
+					if (('' + req.status)[0] == <any>2) {
+						var results = JSON.stringify(req.responseText);
+						qa.some((v, index) => v(results[index], true));
+					} else {
+						qa.some(v => v(void 0, true)); // TODO: Send error
+					}
 				} else if (req.readyState > 1) {
 					// HEADERS_RECEIVED or LOADING
 					return x();

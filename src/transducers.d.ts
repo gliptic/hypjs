@@ -1,6 +1,6 @@
 interface Reducer<T> {
-	(input: T): any; // step
-	b?: () => any; // result
+	(input: T, lease?): any; // step
+	b?: (endcond?) => any; // result
 	d?: (cancel?) => Reducer<T>;
 }
 

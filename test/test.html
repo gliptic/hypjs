@@ -40,8 +40,7 @@
 					console.log(r);
 
 					var s = td.reduce([1000, 300, 400, 2000],
-								td.mapcat(t => td.delay(t, t))
-									.wait()
+								td.mapcat(t => td.delay(t, t), td.wait().latest())
 									//.to(v => { console.log(v) }));
 									.done(arr => console.log('done:', arr))
 									//.post(v => console.log('post:', v))

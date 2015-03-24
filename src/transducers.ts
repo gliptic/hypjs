@@ -87,7 +87,7 @@ define(function () {
 			} else {
 				for (;val = iter.next(), !(c || val.done);) {
 					c = reducer(val.value);
-				}	
+				}
 			}
 			
 		}
@@ -97,7 +97,7 @@ define(function () {
 
 	function defaultReducer<T>(reducer, f: Reducer<T>): Reducer<T> {
 		if (reducer.b) f.b = reducer.b;
-		if (reducer.d) f.d = reducer.d;
+		//if (reducer.d) f.d = reducer.d;
 		return f;
 	}
 
@@ -165,18 +165,59 @@ define(function () {
 		};
 	}
 
+/*
+	function getLease<T>(r: Reducer<T>): Reducer<T> {
+		return r.d ? r.d() : input => r(input);
+	}*/
+
+	function wait<T>(): Transducer<T, T> {
+		return (reducer: Reducer<T>) => {
+			var o = 1, res = sig(true);
+
+			return defaultReducer({
+				b: function () { --o || res(reducer.b(), true); return res; }
+			}, function () {
+				++o;
+				return defaultReducer({
+					b: function () { --o || res(reducer.b(), true); }
+				}, (input: T) => reducer(input));
+			});
+		};
+
+	}
+
+	function latest<T>(): Transducer<T, T> {
+		return (reducer: Reducer<T>) => {
+			var cur = 0;
+			return function () {
+				var me = ++cur;
+				return defaultReducer(reducer, (input: T) => {
+					return !(cur == me) || reducer(input);
+				});
+			}
+		};
+	}
+
+	function defaultJoin(reducer) {
+		return defaultReducer(reducer, function () {
+			return (input) => reducer(input);
+		});
+	}
+
 	// Concatenate a sequence of reducible objects into one sequence
-	function cat(): Transducer<any, any> {
+	function cat(join?: any): Transducer<any, any> {
+		join = join || defaultJoin;
 		return (reducer: Reducer<any>) => {
-			return defaultReducer(reducer, (input) => {
-				return internalReduce(input, reducer);
+			var tempJoin = join(reducer);
+			return defaultReducer(tempJoin, (input) => {
+				return internalReduce(input, tempJoin());
 			});
 		};
 	}
 
 	// Also called flatMap, >>=, bind and others.
-	function mapcat<I>(f: (v: I) => any): Transducer<I, any> {
-		return compose(map(f), cat());
+	function mapcat<I>(f: (v: I) => any, join?: Transducer<any, any>): Transducer<I, any> {
+		return compose(map(f), cat(join));
 	}
 
 	function match<I, O>(coll: ((v: I) => O)[]): Transducer<I, O> {
@@ -196,13 +237,6 @@ define(function () {
 		var c = false;
 		return v => c || (c = r(v));
 	}
-
-/*
-	function counter(reducer: Reducer): Reducer {
-		var c = 0;
-		return defaultReducer(reducer, (input) => reducer([input, ++c]));
-	}
-*/
 
 	function every(interval: number): Signal<number> {
 		var s = sig();
@@ -230,6 +264,7 @@ define(function () {
 	}
 
 	// TODO: How do we prevent misuse of these on non-leasing reducers?
+	/*
 	function wait<T>(): Transducer<T, T> {
 		return (reducer: Reducer<T>) => {
 
@@ -245,18 +280,13 @@ define(function () {
 					++o;
 					DEBUG_SIGNALS && console.log('lease acquired', o);
 					
-					var sublease: Reducer<T> = reducer.d ?
-						reducer.d() :
-						(input) => reducer(input);
+					var l = getLease(reducer),
+						b = l.b;
 
-					var l: Reducer<T> = function (val: T) {
-						return sublease(val);
-					}
-					l.b = function () {
+					l.b = function (endcond) {
 						--o || res(reducer.b(), true);
-						sublease.b && sublease.b();
+						b && b(endcond);
 						DEBUG_SIGNALS && console.log('lease drop', o);
-						return res;
 					}
 					return l;
 				}};
@@ -270,24 +300,21 @@ define(function () {
 			var cur;
 
 			var r: any = {
-				b: reducer.b,
-				d: function () {
-					var l: Reducer<T>;
+					b: reducer.b,
+					d: function (r) {
+						var sublease = getLease(r);
 
-					var sublease: Reducer<T> = reducer.d ?
-						reducer.d() :
-						(input) => reducer(input);
-
-					l = (val: T) => l !== cur || sublease(val);
-					l.b = sublease.b;
-					// TODO: Cancel cur
-					cur = l;
-					return l;
-				}};
+						var l: Reducer<T> = (val: T) => l !== cur || sublease(val);
+						l.b = sublease.b;
+						// TODO: Cancel cur
+						return cur = l;
+					}
+				};
 
 			return r;
 		};
 	}
+	*/
 
 	function sig<T>(persistent?: boolean): Signal<T> {
 		var subs = [],
@@ -295,7 +322,7 @@ define(function () {
 			isDone = false,
 			isProcessing = false;
 
-		function processOne(val, lease): any {
+		function processOne(lease, val): any {
 			return ((val == void 0 || !lease(val)) && !isDone) || (lease.b && lease.b(), false);
 		}
 
@@ -309,18 +336,15 @@ define(function () {
 			}
 			if (val != void 0) lastValue = val;
 			isDone = done;
-			subs = subs.filter(lease => processOne(val, lease));
+			subs = subs.filter(lease => processOne(lease, val));
 			if (CHECK_CYCLES) { isProcessing = false }
 			return !subs.length || !s.then;
 		};
 
 		s.then = (reducer: Reducer<T>) => {
-			var lease: Reducer<T> = reducer.d ?
-				reducer.d() :
-				(input) => reducer(input); // New function so that we don't call .b() on lease drop
-
-			if (processOne(lastValue, lease))
-				subs.push(lease);
+			
+			if (processOne(reducer, lastValue))
+				subs.push(reducer);
 			
 			return lastValue != void 0;
 		};
@@ -377,6 +401,7 @@ define(function () {
 		return this(getReducer(dest));
 	}
 
+/*
 	function err<T>(ev: Reducer<T>): Transducer<T, T> {
 		return reducer => {
 			var r = defaultReducer(reducer, function (input: T) {
@@ -388,6 +413,18 @@ define(function () {
 			});
 			r.b = function () {
 				ev.b && ev.b();
+				return reducer.b && reducer.b();
+			};
+			// TODO: Leases?
+			return r;
+		};
+	}*/
+
+	function err<T>(ev: Reducer<T>): Transducer<T, T> {
+		return reducer => {
+			var r = defaultReducer(reducer, (input: any) => reducer(input));
+			r.b = function (err) {
+				err && ev(err);
 				return reducer.b && reducer.b();
 			};
 			// TODO: Leases?
