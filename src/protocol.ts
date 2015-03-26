@@ -22,7 +22,7 @@ define(['transducers'], function (td) {
 		}
 
 		function dec() {
-			!--o || schedule();
+			--o || schedule();
 		}
 
 		function traverseObj(parent, k) {

@@ -1,80 +1,82 @@
-import td = require('transducers');
-
 type RouteMatchResult = void | (() => void);
 
-function route(path: any, dest: Reducer<Object>): (path: string) => RouteMatchResult {
-	var paramNames = [];
+define(['transducers'], function (td) {
 
-	var paramR = /[:\*]([\w\d]*)/g,
-		pathMatch;
+	function route(path: any, dest: Reducer<Object>): (path: string) => RouteMatchResult {
+		var paramNames = [];
 
-	for (; pathMatch = paramR.exec(path); ) {
-  		paramNames.push(pathMatch[1]);
-    }
+		var paramR = /[:\*]([\w\d]*)/g,
+			pathMatch;
 
-    path = RegExp(path.replace(paramR, str => {
-    	return str[0] == ':' ? "([^\/]+)" : "(.+)";
-	}) + "$");
-
-	return p => {
-		var parts;
-		if (parts = p.match(path)) {
-			var params = {};
-			parts.some((part, index) => {
-				params[paramNames[index]] = part;
-			});
-
-			return function () {
-				dest(params);
-			};
-		}
-	};
-}
-
-var lastLocs = [],
-	url = td.sig(true);
-
-function getLocation() {
-	return location.hash;
-}
-
-function checkLocation() {
-	var curLoc = getLocation();
-	if (!lastLocs.some(v => v == curLoc)) {
-		lastLocs = [curLoc];
-		url(curLoc);
-	}
-}
-
-window.onhashchange = checkLocation;
-checkLocation();
-
-function ready(f) {
-	function check() {
-		document.onreadystatechange = check;
-	    if (/plete|loade|ractive/.test(document.readyState)) {
-	        f && f();
-	        f = null;
+		for (; pathMatch = paramR.exec(path); ) {
+	  		paramNames.push(pathMatch[1]);
 	    }
+
+	    path = RegExp(path.replace(paramR, str => {
+	    	return str[0] == ':' ? "([^\/]+)" : "(.+)";
+		}) + "$");
+
+		return p => {
+			var parts;
+			if (parts = p.match(path)) {
+				var params = {};
+				parts.some((part, index) => {
+					params[paramNames[index]] = part;
+				});
+
+				return function () {
+					dest(params);
+				};
+			}
+		};
 	}
 
-    check();
-}
+	var lastLocs = [],
+		url = td.sig(true),
+		prefixLen = 1;
 
-function reload() {
-	lastLocs = [];
+	function getLocation() {
+		return location.hash.substr(prefixLen);
+	}
+
+	function checkLocation() {
+		var curLoc = getLocation();
+		if (!lastLocs.some(v => v == curLoc)) {
+			lastLocs = [curLoc];
+			url(curLoc);
+		}
+	}
+
+	window.onhashchange = checkLocation;
 	checkLocation();
-}
 
-function go(path) {
-	lastLocs.push(path); // Make sure no event triggers. We're going to trigger it manually.
-	location.hash = path;
-	checkLocation();
-}
+	function ready(f) {
+		function check() {
+			document.onreadystatechange = check;
+		    if (/plete|loade|ractive/.test(document.readyState)) {
+		        f && f();
+		        f = null;
+		    }
+		}
 
-(<any>route).url = url;
-(<any>route).reload = reload;
-(<any>route).go = go;
-(<any>route).ready = ready;
+	    check();
+	}
 
-export = route;
+	function reload() {
+		lastLocs = [];
+		checkLocation();
+	}
+
+	function go(path) {
+		lastLocs.push(path); // Make sure no event triggers. We're going to trigger it manually.
+		location.hash = path;
+		checkLocation();
+	}
+
+	(<any>route).url = url;
+	(<any>route).reload = reload;
+	(<any>route).go = go;
+	(<any>route).ready = ready;
+
+	return route;
+});

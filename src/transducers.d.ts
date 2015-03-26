@@ -1,12 +1,12 @@
 interface Reducer<T> {
-	(input: T, lease?): any; // step
+	(input: T): any; // step
 	b?: (endcond?) => any; // result
 	d?: (cancel?) => Reducer<T>;
 }
 
 interface Transducer<I, O> {
 	(r: Reducer<O>): Reducer<I>;
-	b?: () => any;
+	b?: (endcond?) => any;
 	map?: <O2>(f: (v: O) => O2) => Transducer<I, O2>;
 	filter?: (f: (v: O) => boolean) => Transducer<I, O>;
 	take?: (n: number) => Transducer<I, O>;
@@ -19,8 +19,7 @@ interface Transducer<I, O> {
 	to?: (init?) => Reducer<any>;
 }
 
-interface Signal<T> {
-	(val: T, done?: boolean): boolean;
+interface Signal<T> extends Reducer<T> {
 	then(r: Reducer<T>): any;
 }
 

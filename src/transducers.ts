@@ -20,8 +20,7 @@ define(function () {
 		return v;
 	}
 
-	function nop() {
-	}
+	function nop() {}
 
 	var arrayReducer: Transducer<any, any[]> = (s: any) => {
 		s = s || [];
@@ -66,15 +65,15 @@ define(function () {
 		else if (typeof v == "object")
 			return objReducer(v);
 		else
-			return v; // Default to array
+			return v; // Assume it is a reducer
 	}
 
 	function reduce(coll, reducer: Reducer<any>): any {
-		internalReduce(coll, reducer);
-		return reducer.b && reducer.b();
+		feed(coll, reducer);
+		return reducer.b && reducer.b(true);
 	}
 
-	function internalReduce(coll, reducer: Reducer<any>) {
+	function feed(coll, reducer: Reducer<any>) {
 		var c = false;
 		if (Array.isArray(coll)) {
 			c = coll.some(reducer);
@@ -104,7 +103,7 @@ define(function () {
 		return reducer => {
 			return inherit(reducer, (input: T) => {
 				f(input);
-				return reducer(f.b());
+				return reducer(f.b(true));
 			});
 		};
 	}
@@ -151,7 +150,9 @@ define(function () {
 		return reducer => {
 			var f2: any = f;
 			return inherit(reducer, (input: T) => {
-				return !f2 || !f2(input) && (f2 = 0, reducer(input));
+				// This works because reducer(input) will return a falsy value
+				// if this reducer may be called again.
+				return !(f2 && f2(input)) && (f2 = reducer(input));
 			});
 		};
 	}
@@ -171,11 +172,11 @@ define(function () {
 		// TODO: Combine errors passed through .b() and send
 
 		return inherit({
-			b: function () { --o || res(next.b && next.b(), true); return res; }
+			b: function () { --o || (res(next.b && next.b(true)), res.b(true)); return res; }
 		}, (reducer: Reducer<O>) => {
 			++o;
 			return inherit({
-				b: function () { --o || res(next.b && next.b(), true); return res; }
+				b: function () { --o || (res(next.b && next.b(true)), res.b(true)); return res; }
 			}, next(reducer));
 		});
 	}
@@ -191,7 +192,7 @@ define(function () {
 		});
 	}
 
-	function defaultJoin(reducer: Reducer<any>): Transducer<any, any> {
+	function toJoin(reducer: Reducer<any>): Transducer<any, any> {
 		return inherit(reducer, () => {
 			return (input) => reducer(input);
 		});
@@ -199,11 +200,11 @@ define(function () {
 
 	// Concatenate a sequence of reducible objects into one sequence
 	function cat(join?: any): Transducer<any, any> {
-		join = join.c || id;
+		join = join || { c: id };
 		return (reducer: Reducer<any>) => {
-			var tempJoin = join(defaultJoin(reducer));
+			var tempJoin = join.to(reducer);
 			return inherit(tempJoin, (input) => {
-				return internalReduce(input, tempJoin());
+				return feed(input, tempJoin());
 			});
 		};
 	}
@@ -245,12 +246,15 @@ define(function () {
 		return s;
 	}
 
-	function delay<T>(ms: number, v?: T | Error): Signal<T | Error> {
+	function after<T>(ms: number, v?: T): Signal<T> {
 		var s = sig();
 
 		setTimeout(() => {
-			if (SIMULATE_RANDOM_ERRORS_IN_SIGNAL && Math.random() < 0.3) v = new Error("Error in delay");
-			s(v, true);
+			if (SIMULATE_RANDOM_ERRORS_IN_SIGNAL && Math.random() < 0.3)
+				s.b(new Error("Error in delay"));
+			else {
+				s(v); s.b(true);
+			}
 		}, ms);
 		
 		return s;
@@ -258,33 +262,39 @@ define(function () {
 
 	function sig<T>(persistent?: boolean): Signal<T> {
 		var subs = [],
-			lastValue,
-			isDone = false,
-			isProcessing = false;
+			endCond,
+			isProcessing = false,
+			lastValue;
 
-		function processOne(lease, val): any {
-			return ((val == void 0 || !lease(val)) && !isDone) || (lease.b && lease.b(), false);
-		}
-
-		var s: any = (val, done?) => {
-			DEBUG_SIGNALS && console.log('signalled', val, 'leases:', subs.length);
+		var s: any = (val) => {
+			DEBUG_SIGNALS && console.log('signalled', val, 'subs:', subs.length);
 			if (CHECK_CYCLES) {
 				if (isProcessing) {
 					throw 'Cyclic';
 				}
 				isProcessing = true;
 			}
-			if (val != void 0) lastValue = val;
-			isDone = done;
-			subs = subs.filter(lease => processOne(lease, val));
+			lastValue = val;
+			subs = subs.filter(lease => !lease(val) || (lease.b && lease.b(true), false));
 			if (CHECK_CYCLES) { isProcessing = false }
 			return !subs.length || !s.then;
 		};
 
+		s.b = e => {
+			DEBUG_SIGNALS && console.log('end signal, subs:', subs.length);
+			endCond = e || true;
+			subs = subs.filter(lease => (lease.b && lease.b(endCond), false));
+		};
+
 		s.then = (reducer: Reducer<T>) => {
 			
-			if (processOne(reducer, lastValue))
-				subs.push(reducer);
+			if (!endCond) {
+				if (lastValue == void 0 || !reducer(lastValue)) {
+					subs.push(reducer);
+				}
+			} else {
+				reducer.b && reducer.b(endCond);
+			}
 			
 			return lastValue != void 0;
 		};
@@ -297,10 +307,10 @@ define(function () {
 	function done<T>(ev: Reducer<T>): Transducer<T, T> {
 		return reducer => {
 			var r = inherit(reducer, (input: any) => reducer(input));
-			r.b = function () {
-				var v = reducer.b();
+			r.b = function (endcond) {
+				var v = reducer.b(endcond);
 				ev(v);
-				ev.b && ev.b();
+				ev.b && ev.b(true);
 				return v;
 			};
 			return r;
@@ -310,15 +320,47 @@ define(function () {
 	function err<T>(ev: Reducer<T>): Transducer<T, T> {
 		return reducer => {
 			var r = inherit(reducer, (input: any) => reducer(input));
-			r.b = function (err) {
-				err && ev(err);
-				return reducer.b && reducer.b();
+			r.b = function (endcond) {
+				if (endcond !== true) {
+					ev(endcond);
+				}
+				return reducer.b && reducer.b(true);
 			};
 			return r;
 		};
 	}
 
+	function sample(interval: number) {
+		return reducer => {
+			var latest, s = every(interval);
+			s.then(() => reducer(latest));
+			return inherit(reducer, (input) => {
+				latest = input;
+			});
+		};
+	}
+
+	function delay(d: number) {
+		return reducer => {
+			return inherit(reducer, (input) => {
+				after(d, input).then(input => reducer(input));
+			});
+		};
+	}
+
+	function timeInterval() {
+		return reducer => {
+			var last = +new Date();
+			return inherit(reducer, (input) => {
+				var now = +new Date(), span = now - last;
+				last = now;
+				return reducer({ v: input, interval: span });
+			});
+		};
+	}
+
 	var tdProto: any = {
+
 		map: map,
 		filter: filter,
 		take: take,
@@ -330,32 +372,41 @@ define(function () {
 		match: match,
 		err: err,
 		done: done,
-		comp: td => td.c
+		reducep: reducep,
+
+		sample: sample,
+		delay: delay,
+		timeInterval: timeInterval,
+
+		comp: td => td.c,
 	}
 
 	var joinProto: any = {
+		
 		wait: () => wait,
 		latest: () => latest,
-		comp: td => td.c
+		
+		comp: td => td.c,
 	}
 
 	var mod = {
-		reducep: reducep,
-		reduce: reduce,
+		feed: reduce,
 
 		// Signals
-		process: process,
+		//process: process,
 		//everySecond: everySecond,
-		delay: delay,
+		every: every,
+		after: after,
 		sig: sig,
 	};
 
 	objBind(tdProto, v => {
 		var innerF = v[1];
 		mod[v[0]] = tdProto[v[0]] = function () {
-			var t = innerF.apply(0, arguments);
-			var c = this.c;
-			var x = Object.create(tdProto);
+			var t = innerF.apply(0, arguments),
+				x = Object.create(tdProto),
+				c = this.c;
+
 			x.c = c ? r => c(t(r)) : t;
 			return x;
 		};
@@ -364,15 +415,17 @@ define(function () {
 	objBind(joinProto, v => {
 		var innerF = v[1];
 		mod[v[0]] = joinProto[v[0]] = function () {
-			var t = innerF.apply(0, arguments);
-			var c = this.c;
-			var x = Object.create(joinProto);
+			var t = innerF.apply(0, arguments),
+				x = Object.create(joinProto),
+				c = this.c;
+
 			x.c = c ? r => c(t(r)) : t;
 			return x;
 		};
 	});
 
 	tdProto.to = function (dest) { return this.c(getReducer(dest)); }
+	joinProto.to = function (dest) { return this.c(toJoin(dest)); }
 
 	return mod;
 })

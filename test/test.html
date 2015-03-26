@@ -27,8 +27,8 @@
 									 .take(2))
 
 					var routes = [
-						route('#/a', () => { console.log('a!'); }),
-						route('#/b', () => { console.log('b!'); }),
+						route('/a', () => { console.log('a!'); }),
+						route('/b', () => { console.log('b!'); }),
 						route('*', () => { console.log('dunno'); }),
 					];
 
@@ -36,14 +36,14 @@
 						_.match(routes)
 							.to(routeAction => routeAction()));
 
-					var r = _.reduce([1, 2, 3, 4, 5, 6], process.to([]));
+					var r = _.feed([1, 2, 3, 4, 5, 6], process.to([]));
 					console.log(r);
 
 					//_.mapcat(t => _.delay(t, t))
 
 
-					var s = _.reduce([1000, 300, 400, 2000],
-								_.mapcat(t => _.delay(t, t), _.latest().wait())
+					_.feed([1000, 300, 400, 2000],
+								_.mapcat(t => _.after(t, t), _.latest().wait())
 									//.to(v => { console.log(v) }));
 									.done(arr => console.log('done:', arr))
 									//.post(v => console.log('post:', v))
