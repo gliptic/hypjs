@@ -1,7 +1,19 @@
+interface IteratorResult<T> {
+	value?: T;
+	done?: boolean;
+}
+
+interface Iterator<T> { next(): IteratorResult<T>; }
+
 interface Reducer<T> {
 	(input: T): any; // step
 	b?: (endcond?) => any; // result
-	d?: (cancel?) => Reducer<T>;
+}
+
+interface Unspool<T> {
+	next?: () => IteratorResult<T>;
+	some?: (r: Reducer<T>) => any; // Extract rest into r
+	b?: (rest?: boolean) => any; // End, optionally returning rest
 }
 
 interface Transducer<I, O> {
@@ -19,8 +31,10 @@ interface Transducer<I, O> {
 	to?: (init?) => Reducer<any>;
 }
 
-interface Signal<T> extends Reducer<T> {
-	then(r: Reducer<T>): any;
+interface Signal<T> {
+	r?: Reducer<T>;
+	some(r: Reducer<T>): any;
+	cur(): any;
 }
 
 declare module "transducers" {

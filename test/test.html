@@ -22,9 +22,9 @@
 					console.log(b);
 					console.log(outside);
 
-					var process = _.filter(x => x <= 3).comp(
-									_.map(x => x + 1)
-									 .take(2))
+					var process = _.filter(x => x <= 3)
+									.map(x => x + 1)
+									.take(2)
 
 					var routes = [
 						route('/a', () => { console.log('a!'); }),
@@ -32,24 +32,45 @@
 						route('*', () => { console.log('dunno'); }),
 					];
 
-					route.url.then(
-						_.match(routes)
-							.to(routeAction => routeAction()));
+					route.url
+						.match(routes)
+						.to(routeAction => routeAction());
 
-					var r = _.feed([1, 2, 3, 4, 5, 6], process.to([]));
+					var r = _([1, 2, 3, 4, 5, 6]).comp(process).to([]);
 					console.log(r);
+
+					var l = _([1, 2, 3]).drop(1).lazy();
+					console.log(l.next());
 
 					//_.mapcat(t => _.delay(t, t))
 
+					function regEvent(node, eventName) {
+						var s = _.sig();
+						var f = e => {
+							if (s.r(e)) {
+								console.log('Unregistering');
+								node.removeEventListener(eventName, f);
+							}
+						};
+						node.addEventListener(eventName, f);
+						return s;
+					}
 
-					_.feed([1000, 300, 400, 2000],
-								_.mapcat(t => _.after(t, t), _.latest().wait())
-									//.to(v => { console.log(v) }));
-									.done(arr => console.log('done:', arr))
-									//.post(v => console.log('post:', v))
-									//.pre(v => console.log('pre:', v))
-									.err(e => console.log(e))
-									.to([]));
+					var e = regEvent(document, 'click');
+
+					e.take(5)
+					 .timeInterval()
+					 .done(arr => console.log('Click intervals:', _(arr).map(x => x.interval).to([])))
+				     .to([], _.wait());
+
+			        e.some = null;
+
+/*
+					_([1000, 300, 400, 2000])
+						.mapcat(t => _.after(t, t), _.wait())
+						.done(arr => console.log('done:', arr))
+						.err(e => console.log(e))
+						.to(x => { console.log(x); });*/
 
 					//s.then(arr => console.log(arr));
 				})
