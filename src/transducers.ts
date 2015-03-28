@@ -27,8 +27,12 @@ define(function () {
 
     function arrayReducer(s: any) {
         s = s || [];
-        return inherit({ b: () => s },
-            v => { s.push(v); })
+        return inherit({
+            b: () => {
+                DEBUG && log('.b on arrayReducer:', s);
+                return s;
+            }
+        }, v => { s.push(v); });
     }
 
     function objReducer(s: any) {
@@ -42,6 +46,13 @@ define(function () {
     function unspool(coll): Unspool<any> {
         if (coll[protocolIterator])
             return coll[protocolIterator].call(coll);
+        else if (Array.isArray(coll))
+            return {
+                some: function (r) {
+                    coll.some(r);
+                    return (r.b && r.b(true)) || true;
+                }
+            };
         return coll; // Arrays, iterators and Unspool implement Unspool
     }
 
@@ -57,26 +68,18 @@ define(function () {
         }
     }
 
-    function reduce(coll, reducer: Reducer<any>): any {
-        feed(coll, reducer);
-        return reducer.b && reducer.b(true);
-    }
-
     function feed(coll, reducer: Reducer<any>) {
-        var c;
-
         var u = unspool(coll);
 
         if (u.some) {
-            c = u.some(reducer);
+            return u.some(reducer);
         } else {
-            var val;
+            var val, c;
             for (; val = u.next(), !(c || val.done);) {
                 c = reducer(val.value);
             }
+            return reducer.b && reducer.b(true) || true;
         }
-
-        return c;
     }
 
     function inherit(reducer, f): any {
@@ -148,6 +151,7 @@ define(function () {
         return r;
     }
 
+    /*
     // These are functions from transducers to transducers
     function wait<I, O>(next: Transducer<I, O>): Transducer<I, O> {
         var o = 1, res = sig(true);
@@ -160,6 +164,28 @@ define(function () {
             ++o;
             return inherit({
                 b: function () { --o || (res.r(next.b && next.b(true)), res.r.b(true)); return res; }
+            }, next(reducer));
+        });
+    }
+    */
+
+    function wait<I, O>(next: Transducer<I, O>): Transducer<I, O> {
+        var o = 1;
+
+        // TODO: Combine errors passed through .b() and send
+
+        return inherit({
+            b: function () {
+                DEBUG && log('.b on wait:', o - 1);
+                if (!--o) { return next.b && next.b(true); }
+            }
+        }, (reducer: Reducer<O>) => {
+            ++o;
+            return inherit({
+                b: function () {
+                    DEBUG && log('.b on wait:', o - 1);
+                    if (!--o) { return next.b && next.b(true); }
+                }
             }, next(reducer));
         });
     }
@@ -177,11 +203,12 @@ define(function () {
 
     // Concatenate a sequence of reducible objects into one sequence
     function cat(join?: any): Transducer<any, any> {
-        join = join || { c: id };
+        join = join || mod.wait();
         return (reducer: Reducer<any>) => {
             var sinkCreator = join.to(reducer);
             return inherit(sinkCreator, (input) => {
-                return feed(input, sinkCreator());
+                feed(input, sinkCreator());
+                return;
             });
         };
     }
@@ -279,12 +306,20 @@ define(function () {
         return s;
     }
 
+    function sig2() {
+        var subs = [],
+            previous = [];
+
+
+    }
+
     function done<T>(ev: Reducer<T>): Transducer<T, T> {
         return reducer => {
             // TODO: We may need inherit here if more properties are added to Reducer
             var r: Reducer<T> = (input: any) => reducer(input);
             r.b = function (endcond) {
                 var v = reducer.b(endcond);
+                DEBUG && log('.b on done:', v);
                 ev(v);
                 ev.b && ev.b(true);
                 return v;
@@ -408,16 +443,17 @@ define(function () {
 
     tdProto.to = function (dest, join?) {
         var r = this.f(Array.isArray(dest) ? arrayReducer(dest) : dest);
-        // TODO: We need some sensible default join logic. Should
-        // the signal set one on the tdProto object? But it's not
-        // really the signal's concern.
-        if (join) {
-            r = join.to(r)();
+
+        if (this.c) {
+            var j = (join || mod.wait()).to(r);
+            feed(this.c, j());
+            return j.b(true);
+        } else {
+            return r;
         }
-        return this.c ? reduce(this.c, r) : r;
     }
-    tdProto.toObj = function (dest) {
-        return this.to(objReducer(dest));
+    tdProto.toObj = function (dest, join?) {
+        return this.to(objReducer(dest), join);
     }
     tdProto.mapcat = function (f, join?) { return this.map(f).cat(join); };
     tdProto.lazy = function (): Unspool<any> {
@@ -439,14 +475,6 @@ define(function () {
                     }
                     r(val.value);
                 }
-
-                /*
-                if (i === buf.length) {
-                    buf.length = i = 0;
-                    if (feed(iter, input => { r(input.value); return buf.length; }))
-                        return { done: true };
-                }
-                */
 
                 return { value: buf[i++] };
             }

@@ -61,16 +61,15 @@
 					e.take(5)
 					 .timeInterval()
 					 .done(arr => console.log('Click intervals:', _(arr).map(x => x.interval).to([])))
-				     .to([], _.wait());
+				     .to([]);
 
 			        e.some = null;
 
-/*
 					_([1000, 300, 400, 2000])
-						.mapcat(t => _.after(t, t), _.wait())
+						.mapcat(t => _.after(t, t))
 						.done(arr => console.log('done:', arr))
 						.err(e => console.log(e))
-						.to(x => { console.log(x); });*/
+						.to([]);
 
 					//s.then(arr => console.log(arr));
 				})
