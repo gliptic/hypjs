@@ -1,3 +1,5 @@
+/// <reference path="transducers" />
+
 define(['transducers'], function (td) {
 
     var queue = [],
@@ -41,7 +43,7 @@ define(['transducers'], function (td) {
                 obj.some(v => { parent[k] = v; dec(); });
                 if (obj.cur() !== void 0) {
                     depsMissing = depsMissing || obj.i == void 0;
-                    (q.d = q.d || {}).push([ path.slice(1), obj.i ]);
+                    (q.d = q.d || []).push([ path.slice(1), obj.i ]);
                     parent[k] = void 0;
                 }
             }

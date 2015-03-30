@@ -2,7 +2,7 @@ type RouteMatchResult = void | (() => void);
 
 define(['transducers'], function (td) {
 
-    function route(path: any, dest: Reducer<Object>): (path: string) => RouteMatchResult {
+    function route(path: any, dest: Reducer<Object, any>): (path: string) => RouteMatchResult {
         var paramNames = [];
 
         var paramR = /[:\*]([\w\d]*)/g,

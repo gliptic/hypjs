@@ -10,6 +10,9 @@
         "transducers.ts",
         "transducers.d.ts",
         "protocol.ts",
-        "route.ts"
+        "route.ts",
+        "route.d.ts",
+        "render.ts",
+        "render.d.ts"
     ]
 }

@@ -44,19 +44,21 @@ define(function () {
     var protocolIterator = Symbol ? Symbol.iterator : '@@iterator';
 
     function unspool(coll): Unspool<any> {
-        if (coll[protocolIterator])
+        if (coll[protocolIterator]) {
             return coll[protocolIterator].call(coll);
-        else if (Array.isArray(coll))
+        } else if (Array.isArray(coll)) {
             return {
                 some: function (r) {
                     coll.some(r);
-                    return (r.b && r.b(true)) || true;
-                }
+                    r.b && r.b(true);
+                },
+                
             };
-        return coll; // Arrays, iterators and Unspool implement Unspool
+        }
+        return coll; // Iterators and Unspool implement Unspool
     }
 
-    function objBind(coll, f: Reducer<any>) {
+    function objBind(coll, f: Reducer<any, any>) {
         return Object.keys(coll).some(k => <any>f([k, coll[k]]));
     }
 
@@ -68,17 +70,17 @@ define(function () {
         }
     }
 
-    function feed(coll, reducer: Reducer<any>) {
+    function feed(coll, reducer: Reducer<any, any>) {
         var u = unspool(coll);
 
         if (u.some) {
-            return u.some(reducer);
+            u.some(reducer);
         } else {
             var val, c;
             for (; val = u.next(), !(c || val.done);) {
                 c = reducer(val.value);
             }
-            return reducer.b && reducer.b(true) || true;
+            reducer.b && reducer.b(true);
         }
     }
 
@@ -87,7 +89,7 @@ define(function () {
         return f;
     }
 
-    function reducep<T>(f: Reducer<T>): Transducer<any, T> {
+    function reducep<T>(f: Reducer<T, any>): Transducer<any, T> {
         return reducer => {
             return inherit(reducer, (input: T) => {
                 f(input);
@@ -98,20 +100,24 @@ define(function () {
 
     function map<I, O>(f: (v: I) => O): Transducer<I, O> {
         return reducer => {
-            return inherit(reducer, (input: I) => { return reducer(f(input)); });
+            return inherit(reducer, function (input) {
+                return reducer(f(input));
+            });
         };
     }
 
     function filter<T>(f: (T: any) => boolean): Transducer<T, T> {
         return reducer => {
-            return inherit(reducer, (input: T) => { return f(input) && reducer(input); });
+            return inherit(reducer, function (input) {
+                return f(input) && reducer(input);
+            });
         };
     }
 
     function take<T>(n: number): Transducer<T, T> {
         return reducer => {
             var l = n;
-            return inherit(reducer, (input: T) => {
+            return inherit(reducer, function (input) {
                 return --l < 0 || reducer(input) || !l;
             });
         };
@@ -120,7 +126,7 @@ define(function () {
     function drop<T>(n: number): Transducer<T, T> {
         return reducer => {
             var l = n;
-            return inherit(reducer, (input: T) => {
+            return inherit(reducer, function (input) {
                 return --l < 0 && reducer(input);
             });
         };
@@ -128,7 +134,7 @@ define(function () {
 
     function takeWhile<T>(f: (v: T) => boolean): Transducer<T, T> {
         return reducer => {
-            return inherit(reducer, (input: T) => {
+            return inherit(reducer, function (input) {
                 return !f(input) || reducer(input);
             });
         };
@@ -137,7 +143,7 @@ define(function () {
     function dropWhile<T>(f: (v: T) => boolean): Transducer<T, T> {
         return reducer => {
             var f2: any = f;
-            return inherit(reducer, (input: T) => {
+            return inherit(reducer, function (input) {
                 // This works because reducer(input) will return a falsy value
                 // if this reducer may be called again.
                 return !(f2 && f2(input)) && (f2 = reducer(input));
@@ -145,57 +151,85 @@ define(function () {
         };
     }
 
-    function fold<T>(f: (x: T, y: T) => T, s: T): Reducer<T> {
-        var r: Reducer<T> = (input: T) => s = f(s, input);
-        r.b = () => s;
-        return r;
+    function fold<A, B>(f: (x: A, y: B) => A): Transducer<B, any> {
+        return (s: any) => {
+            var r: Reducer<B, A> = (input: B) => s = f(s, input);
+            r.b = () => s;
+            return r;
+        }
     }
 
-    /*
-    // These are functions from transducers to transducers
-    function wait<I, O>(next: Transducer<I, O>): Transducer<I, O> {
-        var o = 1, res = sig(true);
+    // Reducers
 
-        // TODO: Combine errors passed through .b() and send
+    function groupBy(f) {
+        return () => {
+            var groups = {};
+            var r: Reducer<any, Object> = function (input) {
+                var k = f(input);
+                (groups[k] = groups[k] || []).push(input);
+            };
 
-        return inherit({
-            b: function () { --o || (res.r(next.b && next.b(true)), res.r.b(true)); return res; }
-        }, (reducer: Reducer<O>) => {
-            ++o;
-            return inherit({
-                b: function () { --o || (res.r(next.b && next.b(true)), res.r.b(true)); return res; }
-            }, next(reducer));
-        });
+            // TODO: We could support result pass-through for any
+            // reducer that doesn't have an initializer.
+            r.b = () => groups;
+            return r;
+        }
     }
-    */
 
-    function wait<I, O>(next: Transducer<I, O>): Transducer<I, O> {
-        var o = 1;
+    function some(f?) {
+        return () => {
+            var v;
+            var r: Reducer<any, boolean> = function (input) {
+                return v = !f || f(input);
+            };
+            r.b = () => v;
+            return r;
+        };
+    }
 
-        // TODO: Combine errors passed through .b() and send
-
-        return inherit({
-            b: function () {
-                DEBUG && log('.b on wait:', o - 1);
-                if (!--o) { return next.b && next.b(true); }
-            }
-        }, (reducer: Reducer<O>) => {
-            ++o;
-            return inherit({
-                b: function () {
-                    DEBUG && log('.b on wait:', o - 1);
-                    if (!--o) { return next.b && next.b(true); }
+    function first(f?) {
+        return () => {
+            var v;
+            var r: Reducer<any, any> = function (input) {
+                if (!f || f(input)) {
+                    v = input;
+                    return true;
                 }
-            }, next(reducer));
+            };
+            r.b = () => v;
+            return r;
+        };
+    }
+
+    function wait<O, R>(reducer: Reducer<O, R>): () => Reducer<O, R> {
+        var o = 1, lastEndconn = true;
+
+        // TODO: Combine errors better
+
+        return inherit({
+            b: function (endconn) {
+                DEBUG && log('.b on wait:', o - 1);
+                if (endconn !== true) lastEndconn = endconn;
+                if (!--o) { return reducer.b && reducer.b(lastEndconn); }
+            }
+        }, () => {
+            ++o;
+            return inherit({
+                b: function (endconn) {
+                    DEBUG && log('.b on wait:', o - 1);
+                    if (endconn !== true) lastEndconn = endconn;
+                    if (!--o) { return reducer.b && reducer.b(lastEndconn); }
+                }
+            }, input => reducer(input));
         });
     }
 
     function latest<I, O>(next: Transducer<I, O>): Transducer<I, O> {
         var cur = 0;
-        return inherit(next, (reducer: Reducer<O>) => {
+        return inherit(next, (reducer: Reducer<O, any>) => {
             var wrapped = next(reducer);
             var me = ++cur;
-            return inherit(wrapped, (input: I) => {
+            return inherit(wrapped, function (input) {
                 return cur != me || wrapped(input);
             });
         });
@@ -203,11 +237,11 @@ define(function () {
 
     // Concatenate a sequence of reducible objects into one sequence
     function cat(join?: any): Transducer<any, any> {
-        join = join || mod.wait();
-        return (reducer: Reducer<any>) => {
-            var sinkCreator = join.to(reducer);
-            return inherit(sinkCreator, (input) => {
-                feed(input, sinkCreator());
+        return reducer => {
+            var r: any = wait(reducer);
+            if (join) r = join.f(r);
+            return inherit(r, input => {
+                feed(input, r());
                 return;
             });
         };
@@ -227,7 +261,7 @@ define(function () {
     }
 
     function every(interval: number): Signal<number> {
-        var s = sig();
+        var s = sig<number>();
 
         function set() {
             setTimeout(() => {
@@ -241,7 +275,7 @@ define(function () {
     }
 
     function after<T>(ms: number, v?: T): Signal<T> {
-        var s = sig();
+        var s = sig<T>();
 
         DEBUG && log('calling after, ms =', ms)
 
@@ -286,10 +320,8 @@ define(function () {
             subs = subs.filter(lease => (lease.b && lease.b(endCond), false));
         };
 
-        s.some = (reducer: Reducer<T>) => {
+        s.some = (reducer: Reducer<T, any>) => {
             DEBUG && log('registered sub, lastValue =', lastValue);
-            // While it would be more "correct" for this to return the
-            // status of 'reducer', it's not very useful or predictable.
             if (!endCond) {
                 if (lastValue == void 0 || !reducer(lastValue)) {
                     subs.push(reducer);
@@ -306,17 +338,10 @@ define(function () {
         return s;
     }
 
-    function sig2() {
-        var subs = [],
-            previous = [];
-
-
-    }
-
-    function done<T>(ev: Reducer<T>): Transducer<T, T> {
+    function done<T>(ev: Reducer<T, any>): Transducer<T, T> {
         return reducer => {
             // TODO: We may need inherit here if more properties are added to Reducer
-            var r: Reducer<T> = (input: any) => reducer(input);
+            var r: Reducer<T, any> = input => reducer(input);
             r.b = function (endcond) {
                 var v = reducer.b(endcond);
                 DEBUG && log('.b on done:', v);
@@ -328,10 +353,10 @@ define(function () {
         }
     }
 
-    function err<T>(ev: Reducer<T>): Transducer<T, T> {
+    function err<T>(ev: Reducer<any, any>): Transducer<T, T> {
         return reducer => {
             // TODO: We may need inherit here if more properties are added to Reducer
-            var r: Reducer<T> = (input: any) => reducer(input);
+            var r: Reducer<T, any> = input => reducer(input);
             r.b = function (endcond) {
                 if (endcond !== true) {
                     ev(endcond);
@@ -354,7 +379,7 @@ define(function () {
         return reducer => {
             var latest, s = every(interval);
             s.some(() => reducer(latest));
-            return inherit(reducer, (input) => {
+            return inherit(reducer, input => {
                 latest = input;
             });
         };
@@ -368,16 +393,33 @@ define(function () {
         };
     }
 
-    function timeInterval() {
+    var Timer = performance && performance.now ?
+        performance :
+        Date;
+
+    // TODO: Date.now() isn't very accurate, and not monotonic.
+    // We should use performance.now() when available.
+    function timegaps() {
         return reducer => {
-            var last = +new Date();
+            // +new Date() is much slower and doesn't save much space
+            var last = Timer.now();
             return inherit(reducer, (input) => {
-                var now = +new Date(), span = now - last;
+                var now = Timer.now(), gap = now - last;
                 last = now;
-                return reducer({ v: input, interval: span });
+                return reducer({ v: input, gap: gap });
             });
         };
     }
+
+    function timestamp() {
+        return reducer => {
+            return inherit(reducer, (input) => {
+                return reducer({ v: input, t: Timer.now() });
+            });
+        };
+    }
+
+    function add(x, y) { return x + y; }
 
     var deref = () => map((x: any) => x.v);
 
@@ -395,17 +437,20 @@ define(function () {
         done: done,
         reducep: reducep,
         around: around,
+        groupBy: groupBy,
+        some: some,
+        first: first,
 
         sample: sample,
         delay: delay,
-        timeInterval: timeInterval,
+        timegaps: timegaps,
+        timestamp: timestamp,
 
         comp: td => td.f,
     }
 
     var joinProto: any = {
         
-        wait: () => wait,
         latest: () => latest,
         
         comp: td => td.f,
@@ -418,20 +463,26 @@ define(function () {
     }
 
     // Signals
-    //everySecond: everySecond,
     mod.every = every;
     mod.after = after;
     mod.sig = sig;
 
     function reg(proto, funcs) {
         objBind(funcs, v => {
-            var innerF = v[1];
-            mod[v[0]] = proto[v[0]] = function () {
+            var k = v[0];
+            var innerF = proto[k];
+            mod[k] = proto[k] = function () {
                 var t = innerF.apply(0, arguments),
                     x = Object.create(proto),
                     f = this.f;
 
-                x.f = f ? r => f(t(r)) : t;
+                x.f = f ? r => {
+                    // TODO: If we have a more efficient implementation of
+                    // f, f -> t or f -> t -> r, we should use that. That may
+                    // be the case if we know this.c is a special type such
+                    // as a remote collection.
+                    return f(t(r));
+                } : t;
                 x.c = this.c;
                 return x;
             };
@@ -441,21 +492,29 @@ define(function () {
     reg(tdProto, tdProto);
     reg(joinProto, joinProto);
 
-    tdProto.to = function (dest, join?) {
+    tdProto.to = function (dest) {
         var r = this.f(Array.isArray(dest) ? arrayReducer(dest) : dest);
 
         if (this.c) {
-            var j = (join || mod.wait()).to(r);
-            feed(this.c, j());
-            return j.b(true);
+            r = wait(r);
+            // TODO: Add back join support when we have any useful joins for .to
+            //if (join) r = join.f(r);
+            feed(this.c, r());
+            return r.b && r.b(true);
         } else {
             return r;
         }
     }
-    tdProto.toObj = function (dest, join?) {
-        return this.to(objReducer(dest), join);
+    tdProto.sig = function () {
+        var s = sig();
+        this.to(s.r);
+        return s;
+    }
+    tdProto.toObj = function (dest) {
+        return this.to(objReducer(dest));
     }
     tdProto.mapcat = function (f, join?) { return this.map(f).cat(join); };
+    tdProto.sum = function () { return this.fold(add, 0); }
     tdProto.lazy = function (): Unspool<any> {
         var iter = unspool(this.c);
         if (!this.f) return iter;
@@ -465,12 +524,13 @@ define(function () {
             r = this.f(arrayReducer(buf));
 
         // TODO: Using inherit here might be wrong if it will transfer other properties than .b
+        // TODO: Normal users of iterators won't know to call .b. We must expect it not to be called.
         var u = inherit(r, {
             next: function (): IteratorResult<any> {
                 while (i === buf.length) {
                     buf.length = i = 0;
                     var val = iter.next();
-                    if (val.done) { 
+                    if (val.done) {
                         return { done: true };
                     }
                     r(val.value);
@@ -484,12 +544,7 @@ define(function () {
     }
 
     tdProto.fold = fold;
-
-    joinProto.to = function (dest) {
-        return this.f(inherit(dest, () => {
-            return (input) => dest(input);
-        }));
-    }
+    
 
     return mod;
 })

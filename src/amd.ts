@@ -83,8 +83,7 @@ declare var require: Require;
         err = o.error || ((e, name) => { throw errstr(e, name); });
     }
 
-    var head = document.getElementsByTagName('head')[0],
-        modules: ModuleDict = { require: { v: global.require } },
+    var modules: ModuleDict = { require: { v: global.require } },
         defPromise: Promise<RequireContext> = { c: [] },
         requested = {},
         opt,
@@ -140,12 +139,12 @@ declare var require: Require;
             node.async = true; // TODO: We don't need this in new browsers as it's default.
             node.src = path;
             node.onload = () => { ctx.s = m; flushDefines(ctx); };
-            node.onerror = () => { ctx.d = 0/1; err(LoadError, name); };
+            node.onerror = () => { ctx.c = 0; ctx.d = 0/1; err(LoadError, name); };
 
             if (!SIMULATE_TIMEOUT) {
-                head.appendChild(node);
+                document.head.appendChild(node);
             } else if (Math.random() < 0.3) {
-                setTimeout(function () { head.appendChild(node) }, (opt.waitSeconds || DefaultTimeout) * 1000 * 2);
+                setTimeout(function () { document.head.appendChild(node) }, (opt.waitSeconds || DefaultTimeout) * 1000 * 2);
             }
         }
 
