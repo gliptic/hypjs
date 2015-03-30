@@ -58,6 +58,27 @@ define(function () {
         return coll; // Iterators and Unspool implement Unspool
     }
 
+    function range(min, max) {
+        if (max === void 0) {
+            max = min;
+            min = 0;
+        }
+        var i = {};
+        i[protocolIterator] = () => {
+            var n = min;
+            return {
+                next: (): IteratorResult<number> => {
+                    if (n < max) {
+                        return { value: n++ };
+                    } else {
+                        return { done: true };
+                    }
+                }
+            }
+        };
+        return i;
+    }
+
     function objBind(coll, f: Reducer<any, any>) {
         return Object.keys(coll).some(k => <any>f([k, coll[k]]));
     }
@@ -224,15 +245,54 @@ define(function () {
         });
     }
 
-    function latest<I, O>(next: Transducer<I, O>): Transducer<I, O> {
-        var cur = 0;
-        return inherit(next, (reducer: Reducer<O, any>) => {
-            var wrapped = next(reducer);
-            var me = ++cur;
-            return inherit(wrapped, function (input) {
-                return cur != me || wrapped(input);
+    function latest() {
+        return <I, O>(next: Transducer<I, O>): Transducer<I, O> => {
+            var cur = 0;
+            return inherit(next, (reducer: Reducer<O, any>) => {
+                var wrapped = next(reducer);
+                var me = ++cur;
+                return inherit(wrapped, (input) => {
+                    return cur != me || wrapped(input);
+                });
             });
-        });
+        };
+    }
+
+    function ordered() {
+        return <I, O>(next: Transducer<I, O>): Transducer<I, O> => {
+            var tail = 0, queue = [], head = 0;
+            return inherit(next, (reducer: Reducer<O, any>) => {
+                var wrapped = next(reducer);
+                var me = tail++;
+                return inherit(wrapped, (input) => {
+                    queue[me] = input;
+                    while (head < tail && queue[head] !== void 0) {
+                        if (wrapped(queue[head]))
+                            return true;
+                        queue[head++] = null;
+                    }
+                });
+            });
+        };
+    }
+
+    function ordered2() {
+        return <I, O>(next: Transducer<I, O>): Transducer<I, O> => {
+            var queue = [], head = 0;
+            return inherit(next, (reducer: Reducer<O, any>) => {
+                var wrapped = next(reducer);
+                var me = queue.push(void 0) + head - 1;
+
+                return inherit(wrapped, (input) => {
+                    queue[me - head] = input;
+                    while (queue[0] !== void 0) {
+                        if (wrapped(queue.shift()))
+                            return true;
+                        ++head;
+                    }
+                });
+            });
+        };
     }
 
     // Concatenate a sequence of reducible objects into one sequence
@@ -397,8 +457,6 @@ define(function () {
         performance :
         Date;
 
-    // TODO: Date.now() isn't very accurate, and not monotonic.
-    // We should use performance.now() when available.
     function timegaps() {
         return reducer => {
             // +new Date() is much slower and doesn't save much space
@@ -451,7 +509,8 @@ define(function () {
 
     var joinProto: any = {
         
-        latest: () => latest,
+        latest: latest,
+        ordered: ordered,
         
         comp: td => td.f,
     }
@@ -466,6 +525,7 @@ define(function () {
     mod.every = every;
     mod.after = after;
     mod.sig = sig;
+    mod.range = range;
 
     function reg(proto, funcs) {
         objBind(funcs, v => {
@@ -513,6 +573,7 @@ define(function () {
     tdProto.toObj = function (dest) {
         return this.to(objReducer(dest));
     }
+    tdProto.fold = fold;
     tdProto.mapcat = function (f, join?) { return this.map(f).cat(join); };
     tdProto.sum = function () { return this.fold(add, 0); }
     tdProto.lazy = function (): Unspool<any> {
@@ -543,7 +604,7 @@ define(function () {
         return u;
     }
 
-    tdProto.fold = fold;
+    
     
 
     return mod;

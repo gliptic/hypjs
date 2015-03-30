@@ -94,10 +94,14 @@ declare module "transducers" {
 		export function groupBy<T>(f: (x: T) => any): TransducerObj<T, T>;
 
 		export function latest(): <I, O>(next: Transducer<I, O>) => Transducer<I, O>;
+		export function ordered(): <I, O>(next: Transducer<I, O>) => Transducer<I, O>;
 
 		export function sig<T>(persistent?: boolean): Signal<T>;
 		export function every(interval: number): Signal<number>;
 		export function after<T>(interval: number, v?: T): Signal<T>;
+
+		export function range(max: number): any;
+		export function range(min: number, max?: number): any;
 	}
 
 	export = TransducerModule

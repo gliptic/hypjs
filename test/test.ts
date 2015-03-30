@@ -19,20 +19,37 @@ export function run() {
 
     var rend = render.root(document.getElementById('root'));
 
+    var aNodes = _(_.range(100))
+        .map(x => {
+            if (x & 1) return { tag: 'div', attr: { 'class': 'box' } };
+            return { tag: 'div', attr: { 'class': 'blue box' } };
+        })
+        .to([]);
+
+    var bNodes = _(_.range(10))
+        .map(x => {
+            if (x & 2) return { tag: 'div', attr: { 'class': 'blue box' } };
+            return { tag: 'div', attr: { 'class': 'box' } };
+        })
+        .to([]);
+
+    var before = performance.now();
+    for (var i = 0; i < 100; ++i) {
+        rend(aNodes);
+        rend(bNodes);
+    }
+    var after = performance.now();
+    console.log((after - before) + 'ms');
+
+    console.log('bNodes:', bNodes);
+
     var routes = [
         route('/a', () => {
-            rend([
-                { tag: 'div', attr: {} },
-                { tag: 'div', attr: {} }
-            ]);
+            rend(aNodes);
             console.log('a!');
         }),
         route('/b', () => {
-            rend([
-                { tag: 'div', attr: {}},
-                { tag: 'div', attr: {}},
-                { tag: 'div', attr: {}}
-            ]);
+            rend(bNodes);
             console.log('b!');
         }),
         route('*', () => { console.log('dunno'); }),
@@ -75,7 +92,7 @@ export function run() {
     e.some = null;
 
     _([1000, 300, 400, 2000])
-        .mapcat(t => _.after(t, t))
+        .mapcat(t => _.after(t, t), _.ordered())
         .done(arr => console.log('done:', arr))
         .err(e => console.log(e))
         .to([]);
