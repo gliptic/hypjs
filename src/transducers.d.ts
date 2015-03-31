@@ -93,6 +93,9 @@ declare module "transducers" {
 		export function fold<A, B>(f: (x: A, y: B) => A, s: A): Reducer<B, A>;
 		export function groupBy<T>(f: (x: T) => any): TransducerObj<T, T>;
 
+		export function done<T>(ev: Reducer<T, any>): TransducerObj<T, T>;
+		export function err<T>(ev: Reducer<any, any>): TransducerObj<T, T>;
+
 		export function latest(): <I, O>(next: Transducer<I, O>) => Transducer<I, O>;
 		export function ordered(): <I, O>(next: Transducer<I, O>) => Transducer<I, O>;
 

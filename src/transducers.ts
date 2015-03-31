@@ -223,33 +223,33 @@ define(function () {
     }
 
     function wait<O, R>(reducer: Reducer<O, R>): () => Reducer<O, R> {
-        var o = 1, lastEndconn = true;
+        var o = 1, lastEndcond = true;
 
         // TODO: Combine errors better
 
         return inherit({
-            b: function (endconn) {
+            b: function (endcond) {
                 DEBUG && log('.b on wait:', o - 1);
-                if (endconn !== true) lastEndconn = endconn;
-                if (!--o) { return reducer.b && reducer.b(lastEndconn); }
+                if (endcond !== true) lastEndcond = endcond;
+                if (!--o) { return reducer.b && reducer.b(lastEndcond); }
             }
         }, () => {
             ++o;
             return inherit({
-                b: function (endconn) {
+                b: function (endcond) {
                     DEBUG && log('.b on wait:', o - 1);
-                    if (endconn !== true) lastEndconn = endconn;
-                    if (!--o) { return reducer.b && reducer.b(lastEndconn); }
+                    if (endcond !== true) lastEndcond = endcond;
+                    if (!--o) { return reducer.b && reducer.b(lastEndcond); }
                 }
             }, input => reducer(input));
         });
     }
 
     function latest() {
-        return <I, O>(next: Transducer<I, O>): Transducer<I, O> => {
+        return <I, O>(next: any): any => {
             var cur = 0;
-            return inherit(next, (reducer: Reducer<O, any>) => {
-                var wrapped = next(reducer);
+            return inherit(next, () => {
+                var wrapped = next();
                 var me = ++cur;
                 return inherit(wrapped, (input) => {
                     return cur != me || wrapped(input);
@@ -259,38 +259,34 @@ define(function () {
     }
 
     function ordered() {
-        return <I, O>(next: Transducer<I, O>): Transducer<I, O> => {
+        return <I, O>(next: any): any => {
             var tail = 0, queue = [], head = 0;
-            return inherit(next, (reducer: Reducer<O, any>) => {
-                var wrapped = next(reducer);
-                var me = tail++;
-                return inherit(wrapped, (input) => {
-                    queue[me] = input;
-                    while (head < tail && queue[head] !== void 0) {
-                        if (wrapped(queue[head]))
-                            return true;
-                        queue[head++] = null;
-                    }
-                });
-            });
-        };
-    }
 
-    function ordered2() {
-        return <I, O>(next: Transducer<I, O>): Transducer<I, O> => {
-            var queue = [], head = 0;
-            return inherit(next, (reducer: Reducer<O, any>) => {
-                var wrapped = next(reducer);
-                var me = queue.push(void 0) + head - 1;
+            return inherit(next, () => {
+                var wrapped = next(),
+                    me = tail++,
+                    arr = [];
 
-                return inherit(wrapped, (input) => {
-                    queue[me - head] = input;
-                    while (queue[0] !== void 0) {
-                        if (wrapped(queue.shift()))
-                            return true;
-                        ++head;
+                var r: Reducer<any, any> = (input) => {
+                    if (me == head) {
+                        return wrapped(input);
                     }
-                });
+                    arr.push(input);
+                };
+
+                r.b = function (endcond) {
+                    queue[me] = function () {
+                        var c = arr.some(wrapped);
+                        wrapped.b();
+                        queue[me] = null;
+                        return c;
+                    };
+                    
+                    while (queue[head] && !queue[head++]()) {
+                    }
+                };
+
+                return r;
             });
         };
     }

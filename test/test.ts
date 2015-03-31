@@ -91,9 +91,21 @@ export function run() {
 
     e.some = null;
 
+    var endpipe = _.done(arr => console.log('done:', arr))
+                .err(e => console.log(e));
+
     _([1000, 300, 400, 2000])
         .mapcat(t => _.after(t, t), _.ordered())
-        .done(arr => console.log('done:', arr))
-        .err(e => console.log(e))
+        .comp(endpipe)
+        .to([]);
+
+    _([1000, 300, 400, 2000])
+        .mapcat(t => _.after(t, t))
+        .comp(endpipe)
+        .to([]);
+
+    _([1000, 300, 400, 2000])
+        .mapcat(t => _.after(t, t), _.latest())
+        .comp(endpipe)
         .to([]);
 }
