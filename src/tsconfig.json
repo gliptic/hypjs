@@ -13,6 +13,8 @@
         "route.ts",
         "route.d.ts",
         "render.ts",
-        "render.d.ts"
+        "render.d.ts",
+        "packer.ts",
+        "packer.d.ts"
     ]
 }

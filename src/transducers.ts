@@ -68,11 +68,7 @@ define(function () {
             var n = min;
             return {
                 next: (): IteratorResult<number> => {
-                    if (n < max) {
-                        return { value: n++ };
-                    } else {
-                        return { done: true };
-                    }
+                    return n < max ? { value: n++ } : { done: true };
                 }
             }
         };
@@ -252,7 +248,7 @@ define(function () {
                 var wrapped = next();
                 var me = ++cur;
                 return inherit(wrapped, (input) => {
-                    return cur != me || wrapped(input);
+                    return cur ^ me || wrapped(input);
                 });
             });
         };
@@ -276,14 +272,12 @@ define(function () {
 
                 r.b = function (endcond) {
                     queue[me] = function () {
-                        var c = arr.some(wrapped);
+                        arr.some(wrapped);
                         wrapped.b();
                         queue[me] = null;
-                        return c;
                     };
                     
-                    while (queue[head] && !queue[head++]()) {
-                    }
+                    while (queue[head]) queue[head++]();
                 };
 
                 return r;
@@ -309,7 +303,7 @@ define(function () {
                 var c;
                 coll.some(x => {
                     var v = x(input);
-                    return (v != void 0) && (c = reducer(v), true);
+                    return (v !== void 0) && (c = reducer(v), true);
                 });
                 return c;
             });

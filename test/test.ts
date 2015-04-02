@@ -1,6 +1,7 @@
 /// <reference path="../src/transducers.d.ts" />
 /// <reference path="../src/route.d.ts" />
 /// <reference path="../src/render.d.ts" />
+/// <reference path="../src/packer.d.ts" />
 
 import route = require('route')
 import _ = require('transducers')
@@ -10,6 +11,39 @@ console.log('Running test.js');
 
 function assert(c, msg?) {
     if (!c) console.log('Assert failure. ' + (msg || ''));
+}
+
+export function testunpack() {
+    var arr = new Uint8Array([
+        1 * 2 - 1, // 1 statement without return
+        ExprId.Function, 0,
+            1, // 1 locals (fib)
+            1 * 2, // 1 statement with return
+            ExprId.BinAssign,
+                0,
+                ExprId.Function, 1, // 1 parameter (x)
+                    0, // 0 locals
+                    1 * 2 - 1, // 1 statement without return
+                    ExprId.If, 1, // if () {} else {}
+                        ExprId.BinEq, 0 /* x */, ExprId.Integer, 1,
+                        1 * 2, ExprId.Integer, 1, // return 1
+
+                        1 * 2, ExprId.BinPlus,
+                            ExprId.Call,
+                                1, /* fib */
+                                1,
+                                ExprId.BinMinus, 0 /* x */, ExprId.Integer, 1, // x - 1
+                            ExprId.Call,
+                                1, /* fib */
+                                1,
+                                ExprId.BinMinus, 0 /* x */, ExprId.Integer, 2 // x - 2
+    ]);
+    var x = unpack(arr);
+
+    console.log('len: ' + arr.length);
+    console.log('len2: ' + x.length);
+    console.log(arr);
+    console.log(x);
 }
 
 export function run() {
@@ -33,6 +67,7 @@ export function run() {
         })
         .to([]);
 
+    /*
     var before = performance.now();
     for (var i = 0; i < 100; ++i) {
         rend(aNodes);
@@ -40,6 +75,7 @@ export function run() {
     }
     var after = performance.now();
     console.log((after - before) + 'ms');
+    */
 
     console.log('bNodes:', bNodes);
 

@@ -29,7 +29,7 @@ define(function() {
     }
 
     function assert(cond, msg) {
-        if(!(cond)) throw new Error('Assert fail: ' + msg); 
+        if(!(cond)) throw Error('Assert fail: ' + msg); 
     }
 
     function renderNode(tag: string, oldAttr: any, newAttr: any, node: Element) {
@@ -86,7 +86,7 @@ define(function() {
             if (oldN) {
                 if ((oldType == TObject && newType == TObject 
                  && oldN.tag == newN.tag
-                 && Object.keys(oldN.attr).join() == Object.keys(newN.attr).join()
+                 && '' + Object.keys(oldN.attr) == '' + Object.keys(newN.attr)
                  && oldN.attr.id == newN.attr.id
                  && children[oldMatchChild])
                 || (oldType == TOther && newType == TOther)) {
