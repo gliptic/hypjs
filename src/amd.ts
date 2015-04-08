@@ -9,7 +9,7 @@ interface Define {
 interface Require {
     (def: (...d: any[]) => any);
     (deps: string[], def: (...d: any[]) => any);
-    config(conf: { paths: any });
+    config(conf: { paths: any; error: any; waitSeconds: any; baseUrl?: string });
 }
 
 interface Promise<T> {
@@ -53,19 +53,18 @@ declare var require: Require;
     /** @const */
     var LoadError = 1;
 
-    (require = <any>function (deps?: any, def?: (...d: any[]) => any) {
+    (require = <Require>function (deps?: any, def?: (...d: any[]) => any, rootModule?) {
+        rootModule = { b: 1, c: [] };
         define(deps, def);
 
         // There may be defines that haven't been processed here because they were
         // made outside a 'require' context. Those will automatically tag along into
         // this new context.
-        var rootModule: RequireContext = { b: 1, c: [] };
         rootModule.e = rootModule;
 
         setTimeout(() => {
                 if (rootModule.c) { // If we haven't resolved the context yet...
                     // Time-out
-                    rootModule.b = 0/1; // Make sure the context is never resolved
                     err(TimeOut);
                 }
             }, (opt.waitSeconds || DefaultTimeout)*1000);
@@ -113,17 +112,14 @@ declare var require: Require;
         return modules[name] || (modules[name] = { a: {}, b: 1, c: [] });
     }
 
-    function requestLoad(name, mod, ctx) {
-        var m: Module,
-            path = getPath(name),
-            existing = modules[name];
+    function requestLoad(name, mod, ctx, m?: Module, path?, node?) {
+        var existing = modules[name];
 
         m = getModule(name);
 
         DEBUG && console.log('Looking for ' + name + ', found ' + m)
 
-        if (!existing && !requested[path]) { // Not yet loaded
-            
+        if (!existing && !requested[path = getPath(name)]) { // Not yet loaded
             requested[path] = true;
 
             DEBUG && console.log('Requesting ' + path);
@@ -133,10 +129,10 @@ declare var require: Require;
             }
             
             // type = 'text/javascript' is default
-            var node = document.createElement('script');
-            node.async = true; // TODO: We don't need this in new browsers as it's default.
+            (node = document.createElement('script'))
+                .async = true; // TODO: We don't need this in new browsers as it's default.
             node.onload = () => { ctx.e = m; flushDefines(ctx); };
-            node.onerror = () => { ctx.c = 0; ctx.b = 0/1; err(LoadError, name); };
+            node.onerror = () => { ctx.c = 0; err(LoadError, name); };
             node.src = path;
 
             if (!SIMULATE_TIMEOUT) {
@@ -149,8 +145,7 @@ declare var require: Require;
         return m;
     }
     
-    (define = <any>function(name: any, deps?: any, def?: (...d: any[]) => any) {
-        var mod: Module;
+    (define = <any>function(name: any, deps?: any, def?: (...d: any[]) => any, mod?) {
 
         if (def) {
             mod = getModule(name);
@@ -173,16 +168,16 @@ declare var require: Require;
             // Set exports object so that we can import it
             modules.exports = { a: mod.a };
 
-            function dec() {
-                if (!--mod.b) {
-                    resolve(mod, def.apply(null, depPromises.map(p => p.a)));    
-                }
-            }
-
             depPromises = deps.map(depName => {
                 ++mod.b;
                 return then(requestLoad(depName, mod, ctx), dec);
             });
+            
+            function dec() {
+                if (mod.c && !--mod.b) {
+                    resolve(mod, def.apply(null, depPromises.map(p => p.a)));    
+                }
+            }
 
             dec();
         });
