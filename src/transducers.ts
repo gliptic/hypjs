@@ -263,24 +263,24 @@ define(function () {
                     me = tail++,
                     arr = [];
 
-                var r: Reducer<any, any> = (input) => {
-                    if (me == head) {
-                        return wrapped(input);
+                return inherit({
+                    b: function (endcond) {
+                        queue[me] = function () {
+                            arr.some(wrapped);
+                            wrapped.b();
+                            queue[me] = null;
+                        };
+                        
+                        while (queue[head]) queue[head++]();
                     }
+                }, (input) => {
                     arr.push(input);
-                };
-
-                r.b = function (endcond) {
-                    queue[me] = function () {
-                        arr.some(wrapped);
-                        wrapped.b();
-                        queue[me] = null;
-                    };
-                    
-                    while (queue[head]) queue[head++]();
-                };
-
-                return r;
+                    if (me == head) {
+                        var r = arr.some(wrapped);
+                        arr = [];
+                        return r;
+                    }
+                });
             });
         };
     }
@@ -349,9 +349,7 @@ define(function () {
 
         var s: any = Object.create(tdProto);
 
-        s.c = s;
-
-        s.r = (val) => {
+        ((s.c = s).r = <any>function (val) {
             DEBUG_SIGNALS && log('signalled', val, 'subs:', subs.length);
             if (CHECK_CYCLES) {
                 assert(!isProcessing, 'Cyclic signal');
@@ -361,9 +359,7 @@ define(function () {
             subs = subs.filter(lease => !lease(val) || (lease.b && lease.b(true), false));
             if (CHECK_CYCLES) { isProcessing = false }
             return !subs.length && !s.some;
-        };
-
-        s.r.b = e => {
+        }).b = e => {
             DEBUG_SIGNALS && log('end signal, subs:', subs.length);
             MISUSE_CHECK && assert(e, 'End condition must be a truthy value');
             endCond = e;
@@ -391,29 +387,29 @@ define(function () {
     function done<T>(ev: Reducer<T, any>): Transducer<T, T> {
         return reducer => {
             // TODO: We may need inherit here if more properties are added to Reducer
-            var r: Reducer<T, any> = input => reducer(input);
-            r.b = function (endcond) {
-                var v = reducer.b(endcond);
-                DEBUG && log('.b on done:', v);
-                ev(v);
-                ev.b && ev.b(true);
-                return v;
-            };
-            return r;
+            return inherit({
+                b: function (endcond) {
+                    var v = reducer.b(endcond);
+                    DEBUG && log('.b on done:', v);
+                    ev(v);
+                    ev.b && ev.b(true);
+                    return v;
+                }
+            }, input => reducer(input));
         }
     }
 
     function err<T>(ev: Reducer<any, any>): Transducer<T, T> {
         return reducer => {
             // TODO: We may need inherit here if more properties are added to Reducer
-            var r: Reducer<T, any> = input => reducer(input);
-            r.b = function (endcond) {
-                if (endcond !== true) {
-                    ev(endcond);
+            return inherit({
+                b: function (endcond) {
+                    if (endcond !== true) {
+                        ev(endcond);
+                    }
+                    return reducer.b && reducer.b(true);
                 }
-                return reducer.b && reducer.b(true);
-            };
-            return r;
+            }, input => reducer(input));
         };
     }
 
@@ -449,7 +445,6 @@ define(function () {
 
     function timegaps() {
         return reducer => {
-            // +new Date() is much slower and doesn't save much space
             var last = Timer.now();
             return inherit(reducer, (input) => {
                 var now = Timer.now(), gap = now - last;
