@@ -68,7 +68,7 @@ define(function () {
             var n = min;
             return {
                 next: (): IteratorResult<number> => {
-                    return n < max ? { value: n++ } : { done: true };
+                    return n++ < max ? { value: n } : { done: true };
                 }
             }
         };
@@ -170,9 +170,9 @@ define(function () {
 
     function fold<A, B>(f: (x: A, y: B) => A): Transducer<B, any> {
         return (s: any) => {
-            var r: Reducer<B, A> = (input: B) => s = f(s, input);
-            r.b = () => s;
-            return r;
+            return inherit({
+                b: () => s
+            }, (input: B) => s = f(s, input));
         }
     }
 
@@ -181,40 +181,37 @@ define(function () {
     function groupBy(f) {
         return () => {
             var groups = {};
-            var r: Reducer<any, Object> = function (input) {
+            return inherit({
+                b: () => groups
+            }, function (input) {
                 var k = f(input);
                 (groups[k] = groups[k] || []).push(input);
-            };
-
-            // TODO: We could support result pass-through for any
-            // reducer that doesn't have an initializer.
-            r.b = () => groups;
-            return r;
+            });
         }
     }
 
     function some(f?) {
         return () => {
             var v;
-            var r: Reducer<any, boolean> = function (input) {
+            return inherit({
+                b: () => v
+            }, function (input) {
                 return v = !f || f(input);
-            };
-            r.b = () => v;
-            return r;
+            });
         };
     }
 
     function first(f?) {
         return () => {
             var v;
-            var r: Reducer<any, any> = function (input) {
+            return inherit({
+                b: () => v
+            }, function (input) {
                 if (!f || f(input)) {
                     v = input;
                     return true;
                 }
-            };
-            r.b = () => v;
-            return r;
+            });
         };
     }
 

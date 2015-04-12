@@ -73,4 +73,4 @@ declare enum ExprId {
     FirstNameRef = 47
 }
 
-declare function unpack(arr: Uint8Array): string;
+declare var unpack: (arr: Uint8Array) => string;

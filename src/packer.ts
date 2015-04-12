@@ -1,4 +1,4 @@
-(function (global) {
+(function () {
 
     /*
     statement-block :=
@@ -68,7 +68,7 @@
     FirstNameRef = 48
     */
 
-    function unpack(arr: Uint8Array) {
+    unpack = function (arr: Uint8Array) {
         var i = 0,
             locCount = 0,
             out = [];
@@ -223,6 +223,4 @@
         statblock();
         return out.join('');
     }
-
-    global.unpack = unpack;
-})(this)
+})()
