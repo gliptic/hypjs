@@ -10,7 +10,8 @@ gulp.task('lib', function () {
 	var tsResult = gulp.src(['src/*.ts', 'test/*.ts'])
 		.pipe(ts(proj));
 
-	return tsResult.js.pipe(gulp.dest('build'));
+	return tsResult.js
+		.pipe(gulp.dest('build'));
 });
 
 gulp.task('watch', ['lib'], function () {

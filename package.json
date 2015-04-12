@@ -5,6 +5,9 @@
   "author": "Erik Lindroos <gliptic@gmail.com>",
   "devDependencies": {
     "gulp": "^3.8.11",
-    "gulp-typescript": "^2.4.2"
+    "gulp-closure-compiler": "^0.2.18",
+    "gulp-typescript": "^2.4.2",
+    "node-zopfli": "^1.2.6",
+    "watch": "^0.16.0"
   }
 }
