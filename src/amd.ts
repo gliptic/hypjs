@@ -9,7 +9,7 @@ interface Define {
 interface Require {
     (def: (...d: any[]) => any);
     (deps: string[], def: (...d: any[]) => any);
-    config(conf: { paths: any; error: any; waitSeconds: any; baseUrl?: string });
+    config(conf: { paths: any; error: any; timeoutSec: any; baseUrl?: string });
 }
 
 interface Promise<T> {
@@ -54,12 +54,12 @@ declare var require: Require;
     var LoadError = 1;
 
     (require = <Require>function (deps?: any, def?: (...d: any[]) => any, rootModule?) {
-        rootModule = { b: 1, c: [] };
         define(deps, def);
 
         // There may be defines that haven't been processed here because they were
         // made outside a 'require' context. Those will automatically tag along into
         // this new context.
+        rootModule = { b: 1, c: [] };
         rootModule.e = rootModule;
 
         setTimeout(() => {
@@ -99,7 +99,7 @@ declare var require: Require;
     }
 
     function flushDefines(ctx) {
-        DEBUG && console.log('Flusing defines');
+        DEBUG && console.log('Flushing defines');
         resolve(defPromise, ctx);
         defPromise = { c: [] };
     }
@@ -138,7 +138,7 @@ declare var require: Require;
             if (!SIMULATE_TIMEOUT) {
                 document.head.appendChild(node);
             } else if (Math.random() < 0.3) {
-                setTimeout(function () { document.head.appendChild(node) }, (opt.waitSeconds || DefaultTimeout) * 1000 * 2);
+                setTimeout(function () { document.head.appendChild(node) }, (opt.timeoutSec || DefaultTimeout) * 1000 * 2);
             }
         }
 
@@ -160,7 +160,7 @@ declare var require: Require;
         }
 
         DEBUG && console.log('Schedule define called ' + name);
-        then(defPromise, (ctx, depPromises) => {
+        then(defPromise, (ctx, depPromises?) => {
             if (!mod) { mod = ctx.e; ctx.e = null; }
 
             if (MISUSE_CHECK && !mod) throw 'Ambiguous anonymous module';
