@@ -2,10 +2,12 @@
 /// <reference path="../src/route.d.ts" />
 /// <reference path="../src/render.d.ts" />
 /// <reference path="../src/packer.d.ts" />
+/// <reference path="../src/hyp.d.ts" />
 
 import route = require('route')
 import _ = require('transducers')
 import render = require('render')
+import hyp = require('hyp')
 
 console.log('Running test.js');
 
@@ -119,13 +121,13 @@ export function run() {
     var e = regEvent(document, 'click');
 
     e.timegaps()
-     .map(x => x.interval)
+     .map(x => x.gap)
      .drop(1)
      .take(5)
      .done(grp => console.log('You were slow ' + (grp['true'] ? grp['true'].length : 'no') + ' times'))
      .groupBy((x: number) => x > 200).to();
 
-    e.some = null;
+    e.to = null;
 
     var endpipe = _.done(arr => console.log('done:', arr))
                 .err(e => console.log(e));
@@ -144,4 +146,13 @@ export function run() {
         .mapcat(t => _.after(t, t), _.latest())
         .comp(endpipe)
         .to([]);
+}
+
+export function testhyp() {
+    var parser = hyp.AstParser("x = 0");
+    var m = parser.ruleModule();
+
+    var c = new hyp.Compiler();
+    var arr: string[] = [];
+    c.scan(m, null);
 }

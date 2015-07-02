@@ -12,7 +12,7 @@ interface Reducer<T, R> {
 
 interface Unspool<T> {
 	next?: () => IteratorResult<T>;
-	some?: (r: Reducer<T, any>) => any; // Extract rest into r
+	to?: (r: Reducer<T, any>) => any; // Extract rest into r
 	b?: (rest?: boolean) => any; // End, optionally returning rest
 }
 
@@ -38,7 +38,7 @@ interface TransducerObj<I, O> {
 	to<R>(reducer: Reducer<O, R>): Reducer<O, R>;
 	to<R>(init: R): Reducer<O, R>;
 	to(init?): Reducer<I, any>;
-	timegaps(): TransducerObj<I, { v: O; interval: number }>;
+	timegaps(): TransducerObj<I, { v: O; gap: number }>;
 	done<T>(ev: Reducer<T, any>): TransducerObj<T, T>;
 	err<T>(ev: Reducer<any, any>): TransducerObj<T, T>;
 
@@ -64,7 +64,7 @@ interface Eduction<C, I, O> {
 	to<R>(init: R): R;
 	to(init?): any;
 	lazy(): Unspool<O>;
-	timegaps(): Eduction<C, I, { v: O; interval: number }>;
+	timegaps(): Eduction<C, I, { v: O; gap: number }>;
 	done<T>(ev: Reducer<T, any>): Eduction<C, T, T>;
 	err<T>(ev: Reducer<any, any>): Eduction<C, T, T>;
 
@@ -73,7 +73,7 @@ interface Eduction<C, I, O> {
 
 interface Signal<T> extends Eduction<Signal<T>, T, T> {
 	r?: Reducer<T, void>;
-	some(r: Reducer<T, any>): any;
+	to(r: Reducer<T, any>): any;
 	cur(): T;
 }
 
@@ -92,6 +92,7 @@ declare module "transducers" {
 		export function match<I, O>(coll: ((v: I) => O)[]): TransducerObj<I, O>;
 		export function fold<A, B>(f: (x: A, y: B) => A, s: A): Reducer<B, A>;
 		export function groupBy<T>(f: (x: T) => any): TransducerObj<T, T>;
+		export function timegaps<T>(): TransducerObj<T, { v: T; gap: number }>;
 
 		export function done<T>(ev: Reducer<T, any>): TransducerObj<T, T>;
 		export function err<T>(ev: Reducer<any, any>): TransducerObj<T, T>;

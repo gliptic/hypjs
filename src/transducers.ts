@@ -41,14 +41,14 @@ define(function () {
             v => objMerge(v, s));
     }
 
-    var protocolIterator = Symbol ? Symbol.iterator : '@@iterator';
+    var protocolIterator = typeof Symbol === 'undefined' ? '@@iterator' : Symbol.iterator;
 
     function unspool(coll): Unspool<any> {
         if (coll[protocolIterator]) {
             return coll[protocolIterator].call(coll);
         } else if (Array.isArray(coll)) {
             return {
-                some: function (r) {
+                to: function (r) {
                     coll.some(r);
                     r.b && r.b(true);
                 },
@@ -90,8 +90,8 @@ define(function () {
     function feed(coll, reducer: Reducer<any, any>) {
         var u = unspool(coll);
 
-        if (u.some) {
-            u.some(reducer);
+        if (u.to) {
+            u.to(reducer);
         } else {
             var val, c;
             for (; val = u.next(), !(c || val.done);) {
@@ -355,7 +355,7 @@ define(function () {
             lastValue = val;
             subs = subs.filter(lease => !lease(val) || (lease.b && lease.b(true), false));
             if (CHECK_CYCLES) { isProcessing = false }
-            return !subs.length && !s.some;
+            return !subs.length && !s.to;
         }).b = e => {
             DEBUG_SIGNALS && log('end signal, subs:', subs.length);
             MISUSE_CHECK && assert(e, 'End condition must be a truthy value');
@@ -363,7 +363,7 @@ define(function () {
             subs = subs.filter(lease => (lease.b && lease.b(endCond), false));
         };
 
-        s.some = (reducer: Reducer<T, any>) => {
+        s.to = (reducer: Reducer<T, any>) => {
             DEBUG && log('registered sub, lastValue =', lastValue);
             if (!endCond) {
                 if (lastValue == void 0 || !reducer(lastValue)) {
@@ -421,7 +421,7 @@ define(function () {
     function sample(interval: number) {
         return reducer => {
             var latest, s = every(interval);
-            s.some(() => reducer(latest));
+            s.to(() => reducer(latest));
             return inherit(reducer, input => {
                 latest = input;
             });
@@ -431,12 +431,12 @@ define(function () {
     function delay(d: number) {
         return reducer => {
             return inherit(reducer, (input) => {
-                after(d).some(() => reducer(input));
+                after(d).to(() => reducer(input));
             });
         };
     }
 
-    var Timer = performance && performance.now ?
+    var Timer = typeof performance !== 'undefined' && performance.now ?
         performance :
         Date;
 

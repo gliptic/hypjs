@@ -9,6 +9,7 @@ interface Define {
 interface Require {
     (def: (...d: any[]) => any);
     (deps: string[], def: (...d: any[]) => any);
+    (name: string);
     config(conf: { paths: any; error: any; timeoutSec: any; baseUrl?: string });
 }
 
@@ -34,6 +35,8 @@ interface RequireContext extends Module {
 
 declare var define: Define;
 declare var require: Require;
+declare var exports: any;
+declare var __dirname: string;
 
 (function () {
     /** @const */
@@ -45,6 +48,8 @@ declare var require: Require;
     /** @const */
     var SIMULATE_RANDOM_404 = false;
     /** @const */
+    var SUPPORT_NODE = true;
+    /** @const */
     var DefaultTimeout = 7;
 
     // tsc still outputs lots of crap for enums so we'll have to make do with this.
@@ -53,7 +58,11 @@ declare var require: Require;
     /** @const */
     var LoadError = 1;
 
-    (require = <Require>function (deps?: any, def?: (...d: any[]) => any, rootModule?) {
+    var isNode = SUPPORT_NODE && typeof window == 'undefined';
+    var g = isNode ? exports : window;
+
+    (g.require = <Require>function (deps?: any, def?: (...d: any[]) => any, rootModule?) {
+        if (isNode && !def) return require(deps);
         define(deps, def);
 
         // There may be defines that haven't been processed here because they were
@@ -79,7 +88,7 @@ declare var require: Require;
         return ["Timeout loading module", "Error loading module: "][e] + (name || '');
     }
 
-    var modules: ModuleDict = { require: { a: require } },
+    var modules: ModuleDict = { require: { a: g.require } },
         defPromise: Promise<RequireContext> = { c: [] },
         requested = {},
         opt,
@@ -127,19 +136,28 @@ declare var require: Require;
             if (SIMULATE_RANDOM_404 && Math.random() < 0.3) {
                 path += '_spam';
             }
-            
-            // type = 'text/javascript' is default
-            (node = document.createElement('script'))
-                .async = true; // TODO: We don't need this in new browsers as it's default.
-            node.onload = () => { ctx.e = m; flushDefines(ctx); };
-            node.onerror = () => { ctx.c = 0; err(LoadError, name); };
-            node.src = path;
 
-            if (!SIMULATE_TIMEOUT) {
-                document.head.appendChild(node);
-            } else if (Math.random() < 0.3) {
-                setTimeout(function () { document.head.appendChild(node) }, (opt.timeoutSec || DefaultTimeout) * 1000 * 2);
+            if (isNode) {
+                (<any>require)('fs').readFile(__dirname + '/' + path, function (err, code) {
+                    (<any>require)('vm').runInThisContext(code, { filename: path });
+                    ctx.e = m;
+                    flushDefines(ctx);
+                });
+            } else {
+                // type = 'text/javascript' is default
+                (node = document.createElement('script'))
+                    .async = true; // TODO: We don't need this in new browsers as it's default.
+                node.onload = () => { ctx.e = m; flushDefines(ctx); };
+                node.onerror = () => { ctx.c = 0; err(LoadError, name); };
+                node.src = path;
+
+                if (!SIMULATE_TIMEOUT) {
+                    document.head.appendChild(node);
+                } else if (Math.random() < 0.3) {
+                    setTimeout(function () { document.head.appendChild(node) }, (opt.timeoutSec || DefaultTimeout) * 1000 * 2);
+                }
             }
+            
         }
 
         return m;

@@ -15,6 +15,7 @@
         "render.ts",
         "render.d.ts",
         "packer.ts",
-        "packer.d.ts"
+        "packer.d.ts",
+        "hyp.ts"
     ]
 }

@@ -14,6 +14,12 @@ gulp.task('lib', function () {
 		.pipe(gulp.dest('build'));
 });
 
-gulp.task('watch', ['lib'], function () {
+gulp.task('copyhtml', function () {
+	var html = gulp.src('test/*.html')
+		.pipe(gulp.dest('build'));
+});
+
+gulp.task('watch', ['lib', 'copyhtml'], function () {
 	gulp.watch(['src/*.ts', 'test/*.ts'], ['lib']);
+	gulp.watch(['test/*.html'], ['copyhtml']);
 })

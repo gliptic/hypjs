@@ -1,4 +1,3 @@
-//var watch = require('watch');
 var fs = require('fs'),
 	path = require('path'),
 	ch = require('child_process'),
