@@ -4,6 +4,10 @@ declare module "hyp" {
 	    //type?: AstType;
 	}
 
+	interface AstType {
+
+	}
+
 	interface AstLambda extends Ast {
 	    //cases: Case[];
 	    //scanState: ScanState;
@@ -14,4 +18,8 @@ declare module "hyp" {
 	}
 
 	function AstParser(source: string): { ruleModule(): AstModule };
+
+	class Compiler {
+		build(m: Ast): string;
+	}
 }

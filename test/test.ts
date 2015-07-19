@@ -149,10 +149,11 @@ export function run() {
 }
 
 export function testhyp() {
-    var parser = hyp.AstParser("x = 0");
+    var parser = hyp.AstParser("f = { x: i32 -> if (x < 2) { 1 } else { f(x-1) + f(x-2) } }");
     var m = parser.ruleModule();
 
     var c = new hyp.Compiler();
     var arr: string[] = [];
-    c.scan(m, null);
+    var res = c.build(m);
+    console.log(res);
 }

@@ -138,6 +138,8 @@ export interface AstTypeVal extends Ast {
 
 export interface AstValRef extends Ast {
     name: string;
+    scope: Scope;
+    index?: number;
 }
 
 export interface FieldPair {
@@ -1102,7 +1104,7 @@ export function AstParser(source: string) {
 
         var e = <AstMatch>ruleExpression();
         if (e.kind === AstKind.Match) {
-            return { name: e.pattern, value: e.value };
+            return { name: e.pattern, value: e.value, type: e.pattern.type };
         /*
         } else if (e.type && e.kind === AstKind.Name) { // TODO: Handle other patterns than names
             var type = e.type;
@@ -1110,7 +1112,7 @@ export function AstParser(source: string) {
             return { name: e, value: e.value, type: e.type };
             */
         } else {
-            return { name: null, value: e };
+            return { name: null, value: e, type: e.type };
         }
     }
 
@@ -1236,10 +1238,11 @@ export function AstParser(source: string) {
                 seenParams = true;
                 params = fields.map(x => {
                     if (x.name && x.name.kind === AstKind.Name) {
+                        console.log('x.name.type = ', x.name.type);
                         return { name: x.name, value: x.value, type: x.name.type };
                     }
                     if (x.value && x.value.kind === AstKind.Name) {
-                        return { name: x.value, value: null, type: x.value.type };
+                        return { name: x.value, value: null, type: x.value.type || x.name.type }; // TODO: Handle when types exist on both
                     }
                     throw "Expected name";
                 });
@@ -1294,10 +1297,17 @@ export function AstParser(source: string) {
 export class Compiler {
     mods: Module[];
     scanContext: Case;
+    strings: string[];
+    baseLocalIndex: number;
+    currentLocalIndex: number;
 
     constructor() {
         this.mods = [];
+        this.strings = [];
+        this.currentLocalIndex = 0;
     }
+
+    // TODO: Intern types to avoid extra work in codegen
 
     resolveType(t: AstType): AstType {
         if (!t) return t;
@@ -1357,7 +1367,7 @@ export class Compiler {
         }
     }
 
-    addValueSymbol(name: string, sym: any) {
+    addValueSymbol(name: string, sym: AstValRef) {
         if (this.scanContext.valueSymbols[name]) {
             throw "Identifier already used " + name;
         }
@@ -1404,7 +1414,7 @@ export class Compiler {
             this.resolvePattern(name);
             if (name.kind === AstKind.Name) {
                 var n = <AstName>name;
-                this.addValueSymbol(n.name, { kind: AstKind.ValRef, name: n.name });
+                this.addValueSymbol(n.name, { kind: AstKind.ValRef, name: n.name, scope: this.scanContext });
                 // TODO: Handle other patterns
             } else {
                 throw "Unimplemented: patterns";
@@ -1415,13 +1425,70 @@ export class Compiler {
         // value.type
     }
 
-    unifyTypes(a: AstType, b: AstType) {
-        if (!a) return a;
-        if (!b) return b;
+    matchTypes(a: AstType, b: AstType): AstType {
+        if (!a) return b;
+        if (!b) return a;
+
+        if (a === b) {
+            return a;
+        }
 
         if (a.kind === b.kind) {
-            return a; // TODO
+            switch (a.kind) {
+                case AstKind.TypeRecord: {
+                    var af = (<AstTypeRecord>a).f;
+                    var bf = (<AstTypeRecord>b).f;
+
+                    if (af.length !== bf.length) {
+                        throw "Types have different number of fields";
+                    }
+
+                    for (var i = 0, e = af.length; i < e; ++i) {
+                        var afe = af[i];
+                        var bfe = bf[i];
+                        if (afe.name !== bfe.name) {
+                            throw "Names in record do not match. " + afe.name + " != " + bfe.name;
+                        } else if (!this.matchTypes(afe.type, bfe.type)) {
+                            throw "Type for field " + afe.name + " does not match";
+                        }
+                    }
+
+                    return a;
+                }
+
+                case AstKind.TypeLambda: {
+                    var al = (<AstTypeLambda>a);
+                    var bl = (<AstTypeLambda>b);
+
+                    if (al.p.length !== bl.p.length) {
+                        throw "Function types have different number of parameters";
+                    }
+
+                    if (!this.matchTypes(al.r, bl.r)) {
+                        throw "Return type of function types do not match";
+                    }
+
+                    for (var i = 0, e = al.p.length; i < e; ++i) {
+                        var alp = al.p[i];
+                        var blp = bl.p[i];
+                        // TODO: Match names and default values as well?
+                        if (!this.matchTypes(alp.type, blp.type)) {
+                            throw "Parameter types of function types do not match";
+                        }
+                    }
+                }
+            }
+
+            throw "Types do not match";
         }
+    }
+
+    unifyTypes(a: AstType, b: AstType) {
+        var common = this.matchTypes(a, b);
+        if (common)
+            return common;
+
+        // TODO: Find common subtype
 
         throw "Types must be the same kind";
     }
@@ -1436,6 +1503,141 @@ export class Compiler {
 
         for (var i = 0, e = a.length; i < e; ++i) {
             a[i] = this.unifyTypes(a[i], b[i]);
+        }
+    }
+
+    build(m: Ast): string {
+        this.scan(m, null);
+
+        return this.generate(m);
+    }
+
+    localByIndex(index: number): string {
+        var s = '';
+
+        for (;;) {
+            var digit = index % 52;
+            if (index === 0 && s.length > 0)
+                break;
+            s += String.fromCharCode(digit > 26 ? digit - 26 + 65 : digit + 97);
+            index = (index / 52) | 0;
+        }
+
+        return s;
+    }
+
+    write(s: string) {
+        this.strings.push(s);
+    }
+
+    generate(m: Ast): string {
+        this.gen(m);
+        return this.strings.join('');
+    }
+
+    gen(m: Ast) {
+        switch (m.kind) {
+            case AstKind.App: {
+                var app = <AstApp>m;
+                // TODO: Depending on the type (and value) of app.f, perform function call or use operator
+
+                this.write('(');
+                this.gen(app.f);
+                this.write(')');
+
+                this.write('(');
+                var first = true;
+                app.params.forEach(p => {
+                    // TODO: Match named parameters (This should maybe be done in the resolve phase)
+                    if (!first) {
+                        this.write(', ');
+                    }
+                    first = false;
+                    this.gen(p.value);
+                });
+                this.write(')');
+                break;
+            }
+
+            case AstKind.ConstNum: {
+                var num = <AstConst>m;
+                this.write(num.v.toString());
+                break;
+            }
+
+            case AstKind.ValRef:
+            case AstKind.ParRef: {
+                var ref = <AstValRef>m;
+                this.write(ref.name);
+                break;
+            }
+
+            case AstKind.Record: {
+                
+                break;
+            }
+
+            case AstKind.Lambda: {
+                var lambda = <AstLambda>m;
+
+                var oldScanContext = this.scanContext;
+
+                var tempNames = {};
+
+                lambda.cases.forEach(c => {
+                    //var caseTempCount = c.f.length + c.p.length;
+                    //tempCount = Math.max(tempCount, caseTempCount);
+
+                    function addName(f) {
+                        if (f.name) // TODO: Other patterns
+                            tempNames[f.name.name] = true;
+                    }
+
+                    //c.p.forEach(addName);
+                    c.f.forEach(addName);
+                });
+
+                //var oldBaseLocalIndex = this.baseLocalIndex;
+                //this.baseLocalIndex = this.currentLocalIndex;
+                //this.currentLocalIndex += tempCount;
+
+                this.write('function(');
+
+                this.write(lambda.cases[0].p.map(p => {
+                    // TODO: Other patterns
+                    return (<any>p.name).name;
+                }).join(', '));
+                this.write(') {');
+
+                var keys = Object.keys(tempNames);
+                if (keys.length > 0) {
+                    this.write('var ');
+                    this.write(keys.join(', '));
+                    this.write(';');
+                }
+
+                // Enter bodies
+                lambda.cases.forEach(c => {
+                    this.scanContext = c;
+
+                    c.f.forEach(f => {
+                        if (f.name) {
+                            // TODO: Other patterns
+                            this.write((<any>f.name).name);
+                            this.write(' = ');
+                        }
+                        if (f.value)
+                            this.gen(f.value);
+                    })
+                });
+
+                this.write('}');
+
+                //this.currentLocalIndex -= tempCount;
+                //this.baseLocalIndex = oldBaseLocalIndex;
+
+                this.scanContext = oldScanContext;
+            }
         }
     }
 
@@ -1491,13 +1693,15 @@ export class Compiler {
 
                         this.scanContext = c;
 
+                        var index = 0;
+
                         // TODO: Use context type to fill in parameter types
                         c.p.forEach(p => {
                             if (p.name.kind === AstKind.Name) {
                                 this.scan(p.value, p.type);
 
                                 var n = <AstName>p.name;
-                                this.addValueSymbol(n.name, { kind: AstKind.ParRef, name: n.name });
+                                this.addValueSymbol(n.name, { kind: AstKind.ParRef, name: n.name, scope: c, index: index++ });
                             }
                             // TODO: Handle other patterns
 
@@ -1508,19 +1712,19 @@ export class Compiler {
                             if (f.value.kind === AstKind.Lambda) {
                                 // TODO: Handle other patterns
                                 var n = <AstName>f.name;
-                                this.addValueSymbol(n.name, { kind: AstKind.ValRef, name: n.name });
+                                this.addValueSymbol(n.name, { kind: AstKind.ValRef, name: n.name, scope: c, index: index++ });
                                 pendingAdding.push(f);
                             } else {
                                 var n = <AstName>f.name;
                                 flushPending();
 
-                                var val = this.scan(f.value, null); // TODO: Get a type from declaration
+                                var val = this.scan(f.value, f.type); // TODO: Get a type from declaration
                                 if (n) {
                                     if (f.value.kind === AstKind.ValOfType) {
                                         this.addTypeSymbol(n.name, val);
                                     } else {
                                         // TODO: Assign to variable
-                                        this.addValueSymbol(n.name, { kind: AstKind.ValRef, name: n.name });
+                                        this.addValueSymbol(n.name, { kind: AstKind.ValRef, name: n.name, scope: c, index: index++ });
                                     }
                                 }
                             }
