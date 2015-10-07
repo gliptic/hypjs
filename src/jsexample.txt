@@ -1,7 +1,5 @@
 :Pair = [ x: int, y: int ]
 
-
-
 x = {
 	y = {
 		x()

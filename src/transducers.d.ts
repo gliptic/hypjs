@@ -104,8 +104,8 @@ declare module "transducers" {
 		export function every(interval: number): Signal<number>;
 		export function after<T>(interval: number, v?: T): Signal<T>;
 
-		export function range(max: number): any;
-		export function range(min: number, max?: number): any;
+		export function range(max: number): Iterator<number>;
+		export function range(min: number, max: number): Iterator<number>;
 	}
 
 	export = TransducerModule

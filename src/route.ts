@@ -1,3 +1,6 @@
+/// <reference path="transducers.d.ts" />
+/// <reference path="amd.d.ts" />
+
 type RouteMatchResult = void | (() => void);
 
 define(['transducers'], function (td) {
@@ -47,7 +50,7 @@ define(['transducers'], function (td) {
         }
     }
 
-    window.onhashchange = checkLocation;
+    onhashchange = checkLocation;
     checkLocation();
 
     function ready(f) {

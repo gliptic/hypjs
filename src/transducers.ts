@@ -1,3 +1,5 @@
+/// <reference path="transducers.d.ts" />
+/// <reference path="amd.d.ts" />
 
 declare var Symbol: any;
 
@@ -585,9 +587,6 @@ define(function () {
         u[protocolIterator] = () => u;
         return u;
     }
-
-    
-    
 
     return mod;
 })

@@ -7,5 +7,5 @@ declare module "route" {
 		export var url: Signal<string>;
 	}
 
-	export = RouteModule	
+	export = RouteModule
 }

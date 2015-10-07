@@ -101,6 +101,10 @@ export interface AstConst extends Ast {
     v: number;
 }
 
+export interface AstConstStr extends Ast {
+    v: string;
+}
+
 export interface AstMatch extends Ast {
     pattern: Ast;
     value: Ast;
@@ -190,6 +194,7 @@ export interface TypeFieldPair extends TypeFieldTypePair {
 
 export interface AstType {
     kind: AstKind;
+    name?: string;
 }
 
 export interface AstTypeName extends AstType {
@@ -412,10 +417,6 @@ export function traverse(x: Ast, kind: TraverseKind, enter: (x: Ast, kind?: Trav
     }
 
     return exit && exit(x, kind);
-}
-
-interface Context {
-
 }
 
 export interface Module extends AstLambda {
@@ -949,7 +950,7 @@ export function AstParser(source: string) {
                     name: null, value: child
                 });
             }
-            args.push({ name: astName('children'), value: { kind: AstKind.Record, f: children } });
+            args.push({ name: astName('children'), value: <AstRecord>{ kind: AstKind.Record, f: children } });
         } else {
             throw "Expected end of tag";
         }
@@ -961,13 +962,13 @@ export function AstParser(source: string) {
     // Needs next() after
     function rulePrimaryExpressionDelimited(): Ast {
         switch (tt) {
-            case Token.ConstInt:    return { kind: AstKind.ConstNum, value: <number>tokenData };
-            case Token.ConstString: return { kind: AstKind.ConstString, value: <string>tokenData };
-            case Token.Ident:       return { kind: AstKind.Name, name: <string>tokenData };
+            case Token.ConstInt:    return <AstConst>{ kind: AstKind.ConstNum, v: <number>tokenData };
+            case Token.ConstString: return <AstConstStr>{ kind: AstKind.ConstString, v: <string>tokenData };
+            case Token.Ident:       return <AstName>{ kind: AstKind.Name, name: <string>tokenData };
             case Token.Colon:
                 next();
                 var t = typePrimaryExpressionDelimited();
-                return { kind: AstKind.ValOfType, typeVal: t };
+                return <AstTypeVal>{ kind: AstKind.ValOfType, typeVal: t };
             case Token.LParen:
                 next();
                 var ret = ruleExpression();
@@ -1041,7 +1042,7 @@ export function AstParser(source: string) {
                 rhs = ruleExpressionRest(rhs, pred2);
             }
 
-            lhs = astApp(astName(op), [{ name: null, value: rhs }, { name: null, value: lhs }]);
+            lhs = astApp(astName(op), [{ name: null, value: lhs }, { name: null, value: rhs }]);
         }
 
         if (test(Token.Colon)) {
@@ -1061,7 +1062,7 @@ export function AstParser(source: string) {
             pv = rulePrimaryExpressionTail(pv);
             var ev = ruleExpressionRest(pv, 0);
 
-            e = { kind: AstKind.Match, pattern: e, value: ev };
+            e = <AstMatch>{ kind: AstKind.Match, pattern: e, value: ev };
         }
         
         return e;
@@ -1096,9 +1097,9 @@ export function AstParser(source: string) {
                     t = typeExpression();
                 }
 
-                return { name: astName(name), value: { kind: AstKind.ValOfType, typeVal: t } };
+                return { name: astName(name), value: <AstTypeVal>{ kind: AstKind.ValOfType, typeVal: t } };
             } else {
-                return { name: null, value: { kind: AstKind.ValOfType, typeVal: t } };
+                return { name: null, value: <AstTypeVal>{ kind: AstKind.ValOfType, typeVal: t } };
             }
         }
 
@@ -1655,6 +1656,8 @@ export class Compiler {
             case AstKind.App: {
                 var app = <AstApp>m;
                 this.scan(app.f, null);
+                // TODO: Get the set of types that f can have, filtered first by parameter count/names.
+                // Keep removing f candidates that don't conform to each parameter type.
                 app.params.forEach(a => this.scan(a.value, null));
                 break;
             }
@@ -1705,10 +1708,14 @@ export class Compiler {
                             }
                             // TODO: Handle other patterns
 
-                            casePtypes.push(p.type)
+                            casePtypes.push(p.type);
                         });
 
                         c.f.forEach(f => {
+                            // TODO: Add as pending only if it is fully typed
+
+                            f.type = this.resolveType(f.type);
+
                             if (f.value.kind === AstKind.Lambda) {
                                 // TODO: Handle other patterns
                                 var n = <AstName>f.name;
@@ -1739,7 +1746,7 @@ export class Compiler {
 
                     flushPending();
 
-                    lambda.type = { kind: AstKind.TypeLambda, p: ptypes, f: [ftype] };
+                    lambda.type = <any>{ kind: AstKind.TypeLambda, p: ptypes, f: [ftype] }; // TODO: This is not the right type
 
                     lambda.scanState = ScanState.Scanned;
                     this.scanContext = oldScanContext;

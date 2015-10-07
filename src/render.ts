@@ -50,8 +50,11 @@ define(function() {
     }
 
     var doc = document;
+    var empty = [];
 
     function render(oldDom: any[], newDom: any[], parentNode: Element, oldParentNode?: Element) {
+        oldDom = oldDom || empty;
+
         var children = [].slice.call((oldParentNode || parentNode).childNodes),
             childCount = children.length,
             newChildCount = newDom.length,
@@ -76,14 +79,15 @@ define(function() {
             var oldN = oldDom[oldMatchChild],
                 newN = newDom[newChild];
 
-            var oldType = type(oldN),
-                newType = type(newN);
+            var newType = type(newN);
 
             // TODO: Set oldNode to a suitable node that is likely to still
             // have mostly the same children. We should only do this if we have the key.
             var node = null, oldNode = null, notAttached = !!oldParentNode; // If children are taken from old node, they will not be attached
 
             if (oldN) {
+                var oldType = type(oldN)
+
                 if ((oldType == TObject && newType == TObject 
                  && oldN.tag == newN.tag
                  && '' + Object.keys(oldN.attr) == '' + Object.keys(newN.attr)
@@ -119,6 +123,7 @@ define(function() {
             // Skip removed nodes
             while (oldChild >= 0 && !children[oldChild]) { --oldChild; }
 
+            // Create node if we don't have one
             if (!node) {
                 if (newType == TOther) {
                     node = doc.createTextNode(newN);
@@ -141,10 +146,11 @@ define(function() {
                 if (newN.children) {
                     // TODO: If the node was recreated,
                     // we can pass its old children as cached nodes.
-                    render(oldN.children, newN.children, node, oldNode);
+                    render(oldN && oldN.children, newN.children, node, oldNode);
                 }
             }
 
+            // Attach node if necessary
             if (NO_DOCUMENT_FRAGMENTS) {
                 if (notAttached) {
                     parentNode.insertBefore(node, nextNode);
@@ -157,10 +163,13 @@ define(function() {
                         nextNodeInFrag = null;
                     }
 
+                    // TODO: It's only useful to put the nodes in a fragment if there's more than one.
+                    // Have a delay slot for single nodes.
                     //parentNode.insertBefore(node, nextNode);
                     docFrag.insertBefore(node, nextNodeInFrag);
                     nextNodeInFrag = node;
                 } else {
+
                     if (nextNodeInFrag) {
                         parentNode.insertBefore(docFrag, nextNode);
                         //docFrag = null;

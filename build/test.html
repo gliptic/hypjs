@@ -1,6 +1,17 @@
 <html>
 	<head>
 		<script src="packer.js"></script>
+		<script>
+			var require = {
+				waitSeconds: 7,
+				baseUrl: '',
+				paths: {
+					test: 'test',
+					a: 'bundle',
+					b: 'bundle'
+				}
+			};
+		</script>
 		<script src="amd.js"></script>
 		<style>
 			.box {
@@ -15,15 +26,6 @@
 			}
 		</style>
 		<script>
-			require.config({
-				waitSeconds: 7,
-				baseUrl: '',
-				paths: {
-					test: 'test',
-					a: 'bundle',
-					b: 'bundle'
-				}
-			});
 			define('outside', [], function () { return 'Outside'; })
 
 			require(['test', 'a', 'b', 'outside', 'transducers', 'route'], function (t, a, b, outside, _, route) {

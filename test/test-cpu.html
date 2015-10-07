@@ -1,0 +1,22 @@
+<html>
+	<head>
+		<script src="amd.js"></script>
+		<style>
+			
+		</style>
+		<script>
+			require.config({
+				waitSeconds: 7,
+				baseUrl: '',
+				paths: {
+					test: 'test-cpu'
+				}
+			});
+			require(['test', 'route'], function (t, route) {
+				route.ready(function () {
+					t.run();
+				})
+			});
+		</script>
+	</head>
+</html>

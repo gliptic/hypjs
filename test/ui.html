@@ -1,0 +1,36 @@
+<html>
+	<head>
+		<script>
+			var require = {
+				waitSeconds: 7,
+				baseUrl: '',
+				paths: {
+					bench: 'src/bench',
+					render2: 'src/render2',
+					transducers: 'src/transducers',
+					legacy: 'test/legacy',
+					ui: 'test/ui'
+				},
+				shim: {
+					legacy: {
+						dep: ['bench'],
+						exports: 'leg'
+					}
+				}
+			};
+		</script>
+		<script src="src/amd.js"></script>
+		<style>
+			
+		</style>
+		<script>
+			require(['ui'], function (ui) {
+				var s = ui.show(document.getElementById('root'));
+				s();
+			});
+		</script>
+	</head>
+	<body>
+		<div id="root" />
+	</body>
+</html>

@@ -1,26 +1,12 @@
-interface Define {
-    (def: (...d: any[]) => any);
-    (deps: string[], def: (...d: any[]) => any);
-    (name: string, deps: string[], def: (...d: any[]) => any);
-    amd: boolean;
-    // TODO: Should we support (name, def)?
-}
+/// <reference path="amd.d.ts" />
 
-interface Require {
-    (def: (...d: any[]) => any);
-    (deps: string[], def: (...d: any[]) => any);
-    (name: string);
-    config(conf: { paths: any; error: any; timeoutSec: any; baseUrl?: string });
-}
-
-interface Promise<T> {
+interface AmdPromise<T> {
     c?: ((m: T) => void)[];
     a?: any;
 }
 
+interface Module extends AmdPromise<any> {
 
-interface Module extends Promise<any> {
-    b?: number;
 }
 
 interface ModuleDict {
@@ -30,108 +16,131 @@ interface ModuleDict {
 }
 
 interface RequireContext extends Module {
-    e?: Module; // The single anonymous module for this context. This is set in onload.
+    b?: Module; // The single anonymous module for this context. This is set in onload.
 }
 
-declare var define: Define;
-declare var require: Require;
-declare var exports: any;
-declare var __dirname: string;
+(function (g) {
+    var SUPPORT_SHIMS = true;
+    var SUPPORT_NODE = false;
+    var SUPPORT_ABSOLUTE_PATHS = true;
 
-(function () {
-    /** @const */
     var DEBUG = false;
-    /** @const */
     var MISUSE_CHECK = DEBUG || false;
-    /** @const */
     var SIMULATE_TIMEOUT = false;
-    /** @const */
     var SIMULATE_RANDOM_404 = false;
-    /** @const */
-    var SUPPORT_NODE = true;
-    /** @const */
     var DefaultTimeout = 7;
 
-    // tsc still outputs lots of crap for enums so we'll have to make do with this.
-    /** @const */
-    var TimeOut = 0;
-    /** @const */
-    var LoadError = 1;
-
     var isNode = SUPPORT_NODE && typeof window == 'undefined';
-    var g = isNode ? exports : window;
+    if (isNode) {
+        g = exports;
+    }
 
-    (g.require = <Require>function (deps?: any, def?: (...d: any[]) => any, rootModule?) {
-        if (isNode && !def) return require(deps);
-        define(deps, def);
+    function localRequire(deps?: any, def?: (...d: any[]) => any, rootModule?) {
+        if (isNode && !def) return localRequire(deps);
+        localDefine(deps, def);
 
         // There may be defines that haven't been processed here because they were
         // made outside a 'require' context. Those will automatically tag along into
         // this new context.
-        rootModule = { b: 1, c: [] };
-        rootModule.e = rootModule;
+        rootModule = { c: [] };
+        rootModule.b = rootModule;
 
         setTimeout(() => {
-                if (rootModule.c) { // If we haven't resolved the context yet...
-                    // Time-out
-                    err(TimeOut);
-                }
-            }, (opt.waitSeconds || DefaultTimeout)*1000);
+            if (rootModule.c) { // If we haven't resolved the context yet...
+                // Time-out
+                err(Amd.Error.TimeOut);
+            }
+        }, (opt.waitSeconds || DefaultTimeout)*1000);
 
         flushDefines(rootModule);
-    }).config = function (o) {
-        opt = o;
-        err = o.error || ((e, name) => { throw errstr(e, name); });
-    };
-
-    function errstr(e, name) {
-        return ["Timeout loading module", "Error loading module: "][e] + (name || '');
     }
 
-    var modules: ModuleDict = { require: { a: g.require } },
-        defPromise: Promise<RequireContext> = { c: [] },
-        requested = {},
-        opt,
-        err;
+    (<any>localRequire).config = function (o) {
+        opt = o;
+        err = o.error || ((e, name) => { throw errstr(e, name); })
+    }
 
-    function then<T>(m: Promise<T>, f: (m: T, ctx?: any) => void) {
-        !m.c ? f(m.a) : m.c.push(f);
+    function errstr(e: Amd.Error, name: string) {
+        return ["Timeout loading ", "Error loading "][e] + (name || '');
+    }
+
+    var opt,
+        err,
+        modules: ModuleDict = { require: { a: localRequire } },
+        defPromise: AmdPromise<RequireContext> = { c: [] },
+        requested = {};
+
+    function then<T>(m: AmdPromise<T>, f: (m: T) => void) {
+        if (m.c) m.c.push(f); else f(m.a);
         return m;
     }
 
-    function resolve<T>(m: Promise<T>, mobj?: T) {
+    function resolve<T>(m: AmdPromise<T>, mobj?: T) {
         if (m.c) { // Only resolve once
             if (mobj) m.a = mobj;
             m.c.map(cb => cb(mobj)); // .map is not ideal here, but we lose at least 7 bytes switching to something else!
             m.c = null;
         }
+        return m;
     }
 
-    function flushDefines(ctx) {
-        DEBUG && console.log('Flushing defines');
-        resolve(defPromise, ctx);
+    function flushDefines(ctx, temp?) {
+        if (MISUSE_CHECK && defPromise.c.length == 0) throw 'Expected shim or define() in loaded file';
+        DEBUG && console.log('Flushing defines. ' + defPromise.c.length + ' defines waiting.');
+        temp = defPromise;
         defPromise = { c: [] };
+        resolve(temp, ctx);
+        //temp = defPromise.c;
+        //defPromise.c = [];
+        //temp.map(cb => cb(ctx));
     }
 
     function getPath(name: string): string {
-        return (opt.baseUrl || '') + (opt.paths[name] || name) + '.js';
+        if (SUPPORT_ABSOLUTE_PATHS) {
+            // If name ends in .js, use it as is.
+            // Likewise, if paths[name] ends with .js, don't add baseUrl/.js to it.
+            name = opt.paths[name] || name;
+            return /\.js$/.test(name) ? name : (opt.baseUrl || '') + name + '.js';
+        } else {
+            return (opt.baseUrl || '') + (opt.paths[name] || name) + '.js';
+        }
     }
 
     function getModule(name: string): Module {
-        return modules[name] || (modules[name] = { a: {}, b: 1, c: [] });
+        return modules[name] || (modules[name] = { c: [] });
     }
 
-    function requestLoad(name, mod, ctx, m?: Module, path?, node?) {
-        var existing = modules[name];
-
-        m = getModule(name);
-
-        DEBUG && console.log('Looking for ' + name + ', found ' + m)
-
-        if (!existing && !requested[path = getPath(name)]) { // Not yet loaded
-            requested[path] = true;
+    function requestLoad(name, ctx, m?: Module, path?, node?, shim?, existing?) {
+        
+        function load() {
 
             DEBUG && console.log('Requesting ' + path);
+
+            // type = 'text/javascript' is default
+            (node = document.createElement('script'))
+                .async = true; // TODO: We don't need this in new browsers as it's default.
+            node.onload = () => {
+                ctx.b = m;
+                if (SUPPORT_SHIMS && shim) {
+                    localDefine(() => {
+                        shim.init && shim.init();
+                        return shim.exports && g[shim.exports];
+                    });
+                }
+                flushDefines(ctx);
+            };
+            node.onerror = () => { ctx.c = 0; err(Amd.Error.LoadError, name); };
+            node.src = path;
+
+            if (!SIMULATE_TIMEOUT) {
+                document.head.appendChild(node);
+            } else if (Math.random() < 0.3) {
+                setTimeout(function () { document.head.appendChild(node) }, (opt.waitSeconds || DefaultTimeout) * 1000 * 2);
+            }
+        }
+
+        if (!modules[name] && !requested[path = getPath(name)]) { // Not yet loaded
+            requested[path] = true;
 
             if (SIMULATE_RANDOM_404 && Math.random() < 0.3) {
                 path += '_spam';
@@ -140,30 +149,40 @@ declare var __dirname: string;
             if (isNode) {
                 (<any>require)('fs').readFile(__dirname + '/' + path, function (err, code) {
                     (<any>require)('vm').runInThisContext(code, { filename: path });
-                    ctx.e = m;
+                    ctx.b = m;
                     flushDefines(ctx);
                 });
+            } else if (SUPPORT_SHIMS && (shim = opt.shim[name])) {
+                localRequire(shim.deps || [], load);
             } else {
-                // type = 'text/javascript' is default
-                (node = document.createElement('script'))
-                    .async = true; // TODO: We don't need this in new browsers as it's default.
-                node.onload = () => { ctx.e = m; flushDefines(ctx); };
-                node.onerror = () => { ctx.c = 0; err(LoadError, name); };
-                node.src = path;
-
-                if (!SIMULATE_TIMEOUT) {
-                    document.head.appendChild(node);
-                } else if (Math.random() < 0.3) {
-                    setTimeout(function () { document.head.appendChild(node) }, (opt.timeoutSec || DefaultTimeout) * 1000 * 2);
-                }
+                load();
             }
             
         }
 
+        m = getModule(name);
+
+        DEBUG && console.log('Looking for ' + name + ', found', m)
+
         return m;
     }
     
-    (define = <any>function(name: any, deps?: any, def?: (...d: any[]) => any, mod?) {
+    function localDefine(name: any, deps?: any, def?: (...d: any[]) => any, mod?) {
+
+        /* This also allows define(name, def) ...
+        if ('' + name === name) {
+            mod = getModule(name);
+        } else {
+            def = deps;
+            deps = name;
+            name = null;
+        }
+
+        if (!Array.isArray(deps)) {
+            def = deps;
+            deps = [];
+        }
+        */
 
         if (def) {
             mod = getModule(name);
@@ -177,28 +196,42 @@ declare var __dirname: string;
             }
         }
 
-        DEBUG && console.log('Schedule define called ' + name);
-        then(defPromise, (ctx, depPromises?) => {
-            if (!mod) { mod = ctx.e; ctx.e = null; }
+        if (MISUSE_CHECK) {
+            if (name && typeof name !== 'string') throw 'name must be a string';
+            if (!Array.isArray(deps)) throw 'dependencies must be an array';
+            if (typeof def !== 'function') throw 'definition must be a function';
+        }
+
+        DEBUG && console.log('Schedule define called ' + name + ' with deps: ' + deps);
+
+        then(defPromise, (ctx, depPromises?, depsLeft?) => {
+            if (!mod) { mod = ctx.b; ctx.b = null; }
+
+            DEBUG && console.log('Executing define for ' + Object.keys(modules).filter(x => modules[x] === mod));
 
             if (MISUSE_CHECK && !mod) throw 'Ambiguous anonymous module';
 
-            // Set exports object so that we can import it
-            modules.exports = { a: mod.a };
+            depsLeft = 1;
 
             depPromises = deps.map(depName => {
-                ++mod.b;
-                return then(requestLoad(depName, mod, ctx), dec);
+                return depName == 'exports' ? resolve(mod, {}) : (<any>then)(requestLoad(depName, ctx), dec, ++depsLeft);
             });
-            
+
+            DEBUG && console.log('All deps requested');
+
             function dec() {
-                if (mod.c && !--mod.b) {
-                    resolve(mod, def.apply(null, depPromises.map(p => p.a)));    
+                if (!--depsLeft) {
+                    resolve(mod, def.apply(g, depPromises.map(p => p.a)));
                 }
+
+                DEBUG && console.log('Dep loaded for ' + Object.keys(modules).filter(x => modules[x] === mod) + ', ' + depsLeft + ' to go.');
             }
 
             dec();
         });
-    }).amd = true;
+    }
 
-})()
+    (define = localDefine as Amd.Define).amd = {};
+    g.require = localRequire as Amd.Require;
+
+})(this)

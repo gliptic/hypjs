@@ -8,7 +8,7 @@
     "serve-static": "^1.9.3",
     "gulp": "^3.8.11",
     "gulp-closure-compiler": "^0.2.18",
-    "gulp-typescript": "^2.4.2",
+    "gulp-typescript": "^2.9.0",
     "node-zopfli": "^1.2.6",
     "watch": "^0.16.0"
   }

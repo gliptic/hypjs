@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "module": "amd", 
+        "outDir": "built/js/",
+        "sourceMap": true, 
+        "target": "es5",
+        "jsx": "react"
+    },
+    "files": [
+        "src/amd.ts",
+        "src/bench.ts",
+        "src/bench.d.ts",
+        "src/render2.ts",
+        "src/route.d.ts",
+        "src/route.ts",
+        "src/transducers.d.ts",
+        "src/transducers.ts",
+        "src/test.ts",
+        "test/legacy.ts",
+        "test/ui.tsx",
+        "test/runtests.ts"
+    ]
+}
