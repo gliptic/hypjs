@@ -6,17 +6,18 @@ interface AmdPromise<T> {
 }
 
 interface Module extends AmdPromise<any> {
-
+    b?: boolean; // Whether this module was used in an anonymous context already
 }
 
 interface ModuleDict {
     [name: string]: Module;
     exports?: any;
     require?: any;
+
 }
 
 interface RequireContext extends Module {
-    b?: Module; // The single anonymous module for this context. This is set in onload.
+    
 }
 
 (function (g) {
@@ -42,8 +43,6 @@ interface RequireContext extends Module {
         // There may be defines that haven't been processed here because they were
         // made outside a 'require' context. Those will automatically tag along into
         // this new context.
-        rootModule = { c: [] };
-        rootModule.b = rootModule;
 
         setTimeout(() => {
             if (rootModule.c) { // If we haven't resolved the context yet...
@@ -52,7 +51,7 @@ interface RequireContext extends Module {
             }
         }, (opt.waitSeconds || DefaultTimeout)*1000);
 
-        flushDefines(rootModule);
+        flushDefines(rootModule = { c: [] });
     }
 
     (<any>localRequire).config = function (o) {
@@ -66,12 +65,11 @@ interface RequireContext extends Module {
 
     var opt,
         err,
-        modules: ModuleDict = { require: { a: localRequire } },
-        defPromise: AmdPromise<RequireContext> = { c: [] },
-        requested = {};
+        modules: ModuleDict = {},
+        defPromise: AmdPromise<RequireContext> = { c: [] };
 
     function then<T>(m: AmdPromise<T>, f: (m: T) => void) {
-        if (m.c) m.c.push(f); else f(m.a);
+        if (m.a) f(m.a); else m.c.push(f);
         return m;
     }
 
@@ -81,7 +79,6 @@ interface RequireContext extends Module {
             m.c.map(cb => cb(mobj)); // .map is not ideal here, but we lose at least 7 bytes switching to something else!
             m.c = null;
         }
-        return m;
     }
 
     function flushDefines(ctx, temp?) {
@@ -95,23 +92,13 @@ interface RequireContext extends Module {
         //temp.map(cb => cb(ctx));
     }
 
-    function getPath(name: string): string {
-        if (SUPPORT_ABSOLUTE_PATHS) {
-            // If name ends in .js, use it as is.
-            // Likewise, if paths[name] ends with .js, don't add baseUrl/.js to it.
-            name = opt.paths[name] || name;
-            return /\.js$/.test(name) ? name : (opt.baseUrl || '') + name + '.js';
-        } else {
-            return (opt.baseUrl || '') + (opt.paths[name] || name) + '.js';
-        }
-    }
+    // TODO: Fix conflicts with prototype fields
 
     function getModule(name: string): Module {
         return modules[name] || (modules[name] = { c: [] });
     }
 
-    function requestLoad(name, ctx, m?: Module, path?, node?, shim?, existing?) {
-        
+    function requestLoad(name, m?: Module, path?, node?, shim?, existing?) {
         function load() {
 
             DEBUG && console.log('Requesting ' + path);
@@ -120,16 +107,16 @@ interface RequireContext extends Module {
             (node = document.createElement('script'))
                 .async = true; // TODO: We don't need this in new browsers as it's default.
             node.onload = () => {
-                ctx.b = m;
+                //ctx.b = m;
                 if (SUPPORT_SHIMS && shim) {
                     localDefine(() => {
                         shim.init && shim.init();
                         return shim.exports && g[shim.exports];
                     });
                 }
-                flushDefines(ctx);
+                flushDefines(m);
             };
-            node.onerror = () => { ctx.c = 0; err(Amd.Error.LoadError, name); };
+            node.onerror = () => { err(Amd.Error.LoadError, name); };
             node.src = path;
 
             if (!SIMULATE_TIMEOUT) {
@@ -139,8 +126,19 @@ interface RequireContext extends Module {
             }
         }
 
-        if (!modules[name] && !requested[path = getPath(name)]) { // Not yet loaded
-            requested[path] = true;
+        // Get path to module
+        if (SUPPORT_ABSOLUTE_PATHS) {
+            // If name ends in .js, use it as is.
+            // Likewise, if paths[name] ends with .js, don't add baseUrl/.js to it.
+            path = opt.paths[name] || name;
+            path = /\.js$/.test(path) ? path : (opt.baseUrl || '') + path + '.js';
+        } else {
+            path = (opt.baseUrl || '') + (opt.paths[name] || name) + '.js';
+        }
+
+        if (!modules[name] && !(requestLoad as any)[path]) {
+            // Not yet loaded
+            (requestLoad as any)[path] = path;
 
             if (SIMULATE_RANDOM_404 && Math.random() < 0.3) {
                 path += '_spam';
@@ -149,8 +147,8 @@ interface RequireContext extends Module {
             if (isNode) {
                 (<any>require)('fs').readFile(__dirname + '/' + path, function (err, code) {
                     (<any>require)('vm').runInThisContext(code, { filename: path });
-                    ctx.b = m;
-                    flushDefines(ctx);
+                    //ctx.b = m;
+                    flushDefines(m);
                 });
             } else if (SUPPORT_SHIMS && (shim = opt.shim[name])) {
                 localRequire(shim.deps || [], load);
@@ -166,7 +164,7 @@ interface RequireContext extends Module {
 
         return m;
     }
-    
+
     function localDefine(name: any, deps?: any, def?: (...d: any[]) => any, mod?) {
 
         /* This also allows define(name, def) ...
@@ -205,22 +203,25 @@ interface RequireContext extends Module {
         DEBUG && console.log('Schedule define called ' + name + ' with deps: ' + deps);
 
         then(defPromise, (ctx, depPromises?, depsLeft?) => {
-            if (!mod) { mod = ctx.b; ctx.b = null; }
+
+            depsLeft = 1;
+            if (!mod) { (mod = !ctx.b && ctx).b = true; }
 
             DEBUG && console.log('Executing define for ' + Object.keys(modules).filter(x => modules[x] === mod));
 
             if (MISUSE_CHECK && !mod) throw 'Ambiguous anonymous module';
 
-            depsLeft = 1;
-
             depPromises = deps.map(depName => {
-                return depName == 'exports' ? resolve(mod, {}) : (<any>then)(requestLoad(depName, ctx), dec, ++depsLeft);
+                return depName == 'exports' ? (mod.a = {}, mod)
+                    : depName == 'require' ? { a: localRequire } :
+                    (<any>then)(requestLoad(depName), dec, ++depsLeft);
             });
 
             DEBUG && console.log('All deps requested');
 
             function dec() {
                 if (!--depsLeft) {
+                    DEBUG && console.log('Executing body for ' + Object.keys(modules).filter(x => modules[x] === mod));
                     resolve(mod, def.apply(g, depPromises.map(p => p.a)));
                 }
 

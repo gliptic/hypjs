@@ -23,11 +23,27 @@ fs.watch(from, function () {
 				if (!err) {
 					zopfli.gzip(data, {}, function(err, gziped) {
 						if (!err) {
-							process.stdout.write('Size: ' + gziped.length + ' (' + data.length + ' before gz)\n');
+							process.stdout.write('GZ size: ' + gziped.length + ' (' + data.length + ' before gz)\n');
 						}
 					});
 				}
 			});
+
+			var brotliSize = 0;
+
+			var brotliProc = ch.spawn('brotli', ['-i', to, '-q', '99']);
+
+			brotliProc.stdout.on('data', function (data) {
+				brotliSize += data.length;
+				//console.log('' + data);
+			});
+
+			brotliProc.on('close', function (code) {
+				if (!code) {
+					process.stdout.write('BRO size: ' + brotliSize + '\n');
+				}
+			});
+
 			running = false;
 		})
 		

@@ -1,7 +1,11 @@
 <html>
 	<head>
+		<script src="src/amd.js"></script>
+		<style>
+			
+		</style>
 		<script>
-			var require = {
+			require.config({
 				waitSeconds: 7,
 				baseUrl: '',
 				paths: {
@@ -17,13 +21,8 @@
 						exports: 'leg'
 					}
 				}
-			};
-		</script>
-		<script src="src/amd.js"></script>
-		<style>
-			
-		</style>
-		<script>
+			});
+
 			require(['ui'], function (ui) {
 				var s = ui.show(document.getElementById('root'));
 				s();
