@@ -1,8 +1,27 @@
 <html>
 	<head>
-		<script src="src/test.js"></script>
 		<script src="src/amd.js"></script>
-		<script src="test/runtests.js"></script>
+		<script>
+			require.config({
+				paths: {
+					render2: 'src/render2',
+					test: 'src/test',
+					legacy: 'test/legacy',
+
+					runtests: 'test/runtests'
+				},
+				shim: {
+					legacy: {
+						dep: ['bench'],
+						exports: 'leg'
+					}
+				}
+			});
+
+			require(['runtests'], function (runtests) {
+
+			})
+		</script>
 	</head>
 	<body>
 	</body>

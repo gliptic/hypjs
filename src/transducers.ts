@@ -26,7 +26,7 @@ define(function () {
     function assert(cond, msg) {
         if(!(cond)) throw new Error('Assert fail: ' + msg); 
     }
-
+    
     function arrayReducer(s: any) {
         s = s || [];
         return inherit({

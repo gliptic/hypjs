@@ -1,6 +1,9 @@
-hyptest.freshtest('circular modules', () => {
-	require.config({ paths: {}});
+/// <reference path="../src/test.tsx" />
 
+import * as hyptest from 'test';
+
+hyptest.freshtest('circular modules', () => {
+	
 	var p = hyptest.promise()
 
 	define("a", ["exports", "b"], (exports, b) => { exports.b = b; });
@@ -15,7 +18,6 @@ hyptest.freshtest('circular modules', () => {
 });
 
 hyptest.freshtest('straight modules', () => {
-	require.config({ paths: {}});
 
 	var p = hyptest.promise()
 
@@ -31,7 +33,6 @@ hyptest.freshtest('straight modules', () => {
 });
 
 hyptest.freshtest('forward and backwards modules', () => {
-	require.config({ paths: {}});
 
 	var p = hyptest.promise()
 
@@ -47,5 +48,16 @@ hyptest.freshtest('forward and backwards modules', () => {
 
 	return p;
 });
+
+hyptest.freshtest('loading legacy module', () => {
+	var p = hyptest.promise()
+
+	require(['legacy'], legacy => {
+		hyptest.eq(15, legacy.x);
+		p.resolve();
+	});
+
+	return p;
+})
 
 hyptest.start();

@@ -7,35 +7,7 @@ import * as legacy from 'legacy';
 
 console.log(legacy.x);
 
-var empty = {};
-var React = {
-	createElement: function (tag, props, ...body) {
-		// Flatten body
-		for (var i = 0; i < body.length; i++) {
-			if (Array.isArray(body[i])) {
-				body = body.concat.apply([], body);
-				i--;
-			}
-		}
-
-		props = props || empty;
-
-		var n;
-
-		if (typeof tag === 'string') {
-			n = {
-				t: tag,
-				a: props,
-				c: body
-			}
-		} else {
-			n = tag(props, body);
-		}
-
-		n.key = props.key;
-		return n;
-	}
-}
+var React = render.React;
 
 var v: number;
 

@@ -11,13 +11,19 @@
         "src/bench.ts",
         "src/bench.d.ts",
         "src/render2.ts",
+        "src/render2.d.ts",
         "src/route.d.ts",
         "src/route.ts",
         "src/transducers.d.ts",
         "src/transducers.ts",
-        "src/test.ts",
+        "src/test.tsx",
+        "src/test.d.ts",
+        "src/cookie.ts",
+        "test/legacy.d.ts",
         "test/legacy.ts",
         "test/ui.tsx",
-        "test/runtests.ts"
+        "test/runtests.tsx",
+        "test/server.ts",
+        "test/draw.tsx"
     ]
 }

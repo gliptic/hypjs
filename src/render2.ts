@@ -48,8 +48,8 @@ define(function() {
         }
     }
 
-    var doc = document;
-    var emptyN = { a: {}, c: [] };
+    var doc = document,
+        emptyN = { a: {}, c: [] };
 
     function nodeBucket(obj): string | number {
         var ty = type(obj);
@@ -137,8 +137,38 @@ define(function() {
         }
     }
 
+    var empty = {};
+
     return {
         //render: render,
-        root: root
+        root: root,
+        React: {
+            createElement: function (tag, props, ...body) {
+                // Flatten body
+                for (var i = 0; i < body.length; i++) {
+                    if (Array.isArray(body[i])) {
+                        body = body.concat.apply([], body);
+                        i--;
+                    }
+                }
+
+                props = props || empty;
+
+                var n;
+
+                if (typeof tag === 'string') {
+                    n = {
+                        t: tag,
+                        a: props,
+                        c: body
+                    }
+                } else {
+                    n = tag(props, body);
+                }
+
+                n.key = props.key;
+                return n;
+            }
+        }
     }
 })

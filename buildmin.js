@@ -7,7 +7,7 @@ var args = process.argv.slice(1);
 var name = args[1];
 
 var from = path.resolve(__dirname, 'build', name + '.js');
-var to = path.resolve(__dirname, name + '.min.js');
+var to = path.resolve(__dirname, 'build', name + '.min.js');
 process.stdout.write(from + '\n');
 
 var running = false;

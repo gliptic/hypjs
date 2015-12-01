@@ -11,7 +11,7 @@ declare module Amd {
 	export interface Require {
 	    (def: (...d: any[]) => any);
 	    (deps: string[], def: (...d: any[]) => any);
-	    (name: string);
+	    (name: string): any;
 	    config(conf: { paths: any; error?: any; waitSeconds?: any; baseUrl?: string });
 	}
 

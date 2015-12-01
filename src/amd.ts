@@ -1,7 +1,7 @@
 /// <reference path="amd.d.ts" />
 
 interface AmdPromise<T> {
-    c?: ((m: T) => void)[];
+    c?: (() => void);
     a?: any;
 }
 
@@ -20,7 +20,7 @@ interface RequireContext extends Module {
     
 }
 
-(function (g) {
+(function (g, opt?, err?, modules?: ModuleDict, defPromise?: AmdPromise<RequireContext>) {
     var SUPPORT_SHIMS = true;
     var SUPPORT_NODE = false;
     var SUPPORT_ABSOLUTE_PATHS = true;
@@ -51,87 +51,48 @@ interface RequireContext extends Module {
             }
         }, (opt.waitSeconds || DefaultTimeout)*1000);
 
-        flushDefines(rootModule = { c: [] });
+        (resolve as any)(defPromise, rootModule = { c: function () {} }, defPromise = {});
     }
 
-    (<any>localRequire).config = function (o) {
+    (g.require = localRequire as Amd.Require).config = function (o) {
         opt = o;
         err = o.error || ((e, name) => { throw errstr(e, name); })
     }
 
     function errstr(e: Amd.Error, name: string) {
-        return ["Timeout loading ", "Error loading "][e] + (name || '');
+        //return ["Timeout loading ", "Error loading "][e] + (name || '');
+        return (e ? "Error loading " : "Timeout loading ") + (name || '');
     }
 
-    var opt,
-        err,
-        modules: ModuleDict = {},
-        defPromise: AmdPromise<RequireContext> = { c: [] };
-
-    function then<T>(m: AmdPromise<T>, f: (m: T) => void) {
-        if (m.a) f(m.a); else m.c.push(f);
+    modules = {};
+    defPromise = {};
+    
+    function then<T>(m: AmdPromise<T>, f: (m: T) => void, prev?) {
+        prev = m.c;
+        if (m.a) f(m.a); else m.c = function() { f(m.a); prev && prev() };
         return m;
     }
 
     function resolve<T>(m: AmdPromise<T>, mobj?: T) {
-        if (m.c) { // Only resolve once
-            if (mobj) m.a = mobj;
-            m.c.map(cb => cb(mobj)); // .map is not ideal here, but we lose at least 7 bytes switching to something else!
-            m.c = null;
-        }
-    }
-
-    function flushDefines(ctx, temp?) {
-        if (MISUSE_CHECK && defPromise.c.length == 0) throw 'Expected shim or define() in loaded file';
-        DEBUG && console.log('Flushing defines. ' + defPromise.c.length + ' defines waiting.');
-        temp = defPromise;
-        defPromise = { c: [] };
-        resolve(temp, ctx);
-        //temp = defPromise.c;
-        //defPromise.c = [];
-        //temp.map(cb => cb(ctx));
+        if (mobj) m.a = mobj;
+        m.c && m.c();
+        m.c = null;
     }
 
     // TODO: Fix conflicts with prototype fields
 
     function getModule(name: string): Module {
-        return modules[name] || (modules[name] = { c: [] });
+        return modules[name] || (modules[name] = {});
     }
 
-    function requestLoad(name, m?: Module, path?, node?, shim?, existing?) {
-        function load() {
-
-            DEBUG && console.log('Requesting ' + path);
-
-            // type = 'text/javascript' is default
-            (node = document.createElement('script'))
-                .async = true; // TODO: We don't need this in new browsers as it's default.
-            node.onload = () => {
-                //ctx.b = m;
-                if (SUPPORT_SHIMS && shim) {
-                    localDefine(() => {
-                        shim.init && shim.init();
-                        return shim.exports && g[shim.exports];
-                    });
-                }
-                flushDefines(m);
-            };
-            node.onerror = () => { err(Amd.Error.LoadError, name); };
-            node.src = path;
-
-            if (!SIMULATE_TIMEOUT) {
-                document.head.appendChild(node);
-            } else if (Math.random() < 0.3) {
-                setTimeout(function () { document.head.appendChild(node) }, (opt.waitSeconds || DefaultTimeout) * 1000 * 2);
-            }
-        }
+    function requestLoad(name, m?: Module, path?, node?, shim?) {
 
         // Get path to module
         if (SUPPORT_ABSOLUTE_PATHS) {
             // If name ends in .js, use it as is.
             // Likewise, if paths[name] ends with .js, don't add baseUrl/.js to it.
-            path = opt.paths[name] || name;
-            path = /\.js$/.test(path) ? path : (opt.baseUrl || '') + path + '.js';
+            if (!/\.js$/.test(path = opt.paths[name] || name))
+                path = (opt.baseUrl || '') + path + '.js';
         } else {
             path = (opt.baseUrl || '') + (opt.paths[name] || name) + '.js';
         }
@@ -147,15 +108,37 @@ interface RequireContext extends Module {
             if (isNode) {
                 (<any>require)('fs').readFile(__dirname + '/' + path, function (err, code) {
                     (<any>require)('vm').runInThisContext(code, { filename: path });
-                    //ctx.b = m;
-                    flushDefines(m);
+                    (resolve as any)(defPromise, m, defPromise = {});
                 });
-            } else if (SUPPORT_SHIMS && (shim = opt.shim[name])) {
-                localRequire(shim.deps || [], load);
             } else {
-                load();
+                // type = 'text/javascript' is default
+                node = document.createElement('script');
+                    //.async = true; // TODO: We don't need this in new browsers as it's default.
+                node.onload = () => {
+                    if (SUPPORT_SHIMS && shim) {
+                        localDefine(() => {
+                            shim.init && shim.init();
+                            return g[shim.exports];
+                        });
+                    }
+
+                    (resolve as any)(defPromise, m, defPromise = {});
+                };
+                node.onerror = () => { err(Amd.Error.LoadError, name); };
+                node.src = path;
+
+                shim = SUPPORT_SHIMS && opt.shim && opt.shim[name];
+
+                localRequire(shim && shim.deps || [], () => {
+                    DEBUG && console.log('Requesting ' + path);
+
+                    if (!SIMULATE_TIMEOUT) {
+                        document.head.appendChild(node);
+                    } else if (Math.random() < 0.3) {
+                        setTimeout(function () { document.head.appendChild(node) }, (opt.waitSeconds || DefaultTimeout) * 1000 * 2);
+                    }
+                });
             }
-            
         }
 
         m = getModule(name);
@@ -214,7 +197,7 @@ interface RequireContext extends Module {
             depPromises = deps.map(depName => {
                 return depName == 'exports' ? (mod.a = {}, mod)
                     : depName == 'require' ? { a: localRequire } :
-                    (<any>then)(requestLoad(depName), dec, ++depsLeft);
+                    (then as any)(requestLoad(depName), dec, ++depsLeft);
             });
 
             DEBUG && console.log('All deps requested');
@@ -233,6 +216,5 @@ interface RequireContext extends Module {
     }
 
     (define = localDefine as Amd.Define).amd = {};
-    g.require = localRequire as Amd.Require;
 
 })(this)
