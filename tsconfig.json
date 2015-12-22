@@ -19,6 +19,8 @@
         "src/test.tsx",
         "src/test.d.ts",
         "src/cookie.ts",
+        "src/model.ts",
+        "src/util.ts",
         "test/legacy.d.ts",
         "test/legacy.ts",
         "test/ui.tsx",

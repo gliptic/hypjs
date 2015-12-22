@@ -3,7 +3,7 @@
 
 type RouteMatchResult = void | (() => void);
 
-define(['transducers'], function (td) {
+define(['transducers'], function (_) {
 
     function route(path: any, dest: Reducer<Object, any>): (path: string) => RouteMatchResult {
         var paramNames = [];
@@ -35,7 +35,7 @@ define(['transducers'], function (td) {
     }
 
     var lastLocs = [],
-        url = td.sig(true),
+        url = _.sig(true),
         prefixLen = 1;
 
     function getLocation() {
