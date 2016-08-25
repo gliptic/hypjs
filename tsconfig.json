@@ -21,6 +21,7 @@
         "src/cookie.ts",
         "src/model.ts",
         "src/util.ts",
+        "src/hyp2/parser.ts",
         "test/legacy.d.ts",
         "test/legacy.ts",
         "test/ui.tsx",

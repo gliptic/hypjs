@@ -1,7 +1,5 @@
 /// <reference path="render2.d.ts" />
 
-//module hyptest {
-
 var DEBUG = false;
 
 export interface Test {
@@ -182,4 +180,3 @@ window.onerror = function (message, url, line, column, err) {
 	addError(message);
 	if (next) next();
 };
-//}

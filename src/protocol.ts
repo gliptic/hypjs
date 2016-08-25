@@ -1,4 +1,4 @@
-/// <reference path="transducers" />
+/// <reference path="transducers.ts" />
 
 define(['transducers'], function (td) {
 

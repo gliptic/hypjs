@@ -21,15 +21,15 @@ interface RequireContext extends Module {
 }
 
 (function (g, opt?, err?, modules?: ModuleDict, defPromise?: AmdPromise<RequireContext>) {
-    var SUPPORT_SHIMS = true;
-    var SUPPORT_NODE = false;
-    var SUPPORT_ABSOLUTE_PATHS = true;
+    var SUPPORT_SHIMS = true,
+        SUPPORT_NODE = false,
+        SUPPORT_ABSOLUTE_PATHS = true;
 
-    var DEBUG = false;
-    var MISUSE_CHECK = DEBUG || false;
-    var SIMULATE_TIMEOUT = false;
-    var SIMULATE_RANDOM_404 = false;
-    var DefaultTimeout = 7;
+    var DEBUG = false,
+        MISUSE_CHECK = DEBUG || false,
+        SIMULATE_TIMEOUT = false,
+        SIMULATE_RANDOM_404 = false,
+        DefaultTimeout = 7;
 
     var isNode = SUPPORT_NODE && typeof window == 'undefined';
     if (isNode) {
@@ -199,7 +199,7 @@ interface RequireContext extends Module {
                     : depName == 'require' ? { a: localRequire } :
                     (then as any)(requestLoad(depName), dec, ++depsLeft);
             });
-
+                        
             DEBUG && console.log('All deps requested');
 
             function dec() {
